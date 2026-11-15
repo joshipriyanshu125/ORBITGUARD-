@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from app.core.config import settings
 from app.core.logging import logger
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
+from app.services.ingestion_scheduler import ingestion_scheduler
 from app.api.router import api_router
 
 
@@ -19,9 +20,11 @@ async def lifespan(app: FastAPI):
     # Startup: Connect to MongoDB and build indexes
     logger.info("Initializing ORBITGUARD AI backend service...")
     await connect_to_mongo()
+    ingestion_scheduler.start()
     yield
-    # Shutdown: Close MongoDB connection
+    # Shutdown: Stop scheduler and close MongoDB connection
     logger.info("Shutting down ORBITGUARD AI backend service...")
+    ingestion_scheduler.stop()
     await close_mongo_connection()
 
 
