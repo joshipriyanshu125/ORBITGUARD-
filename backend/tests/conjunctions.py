@@ -53,6 +53,19 @@ def test_risk_classification():
     assert score_low < 40.0
 
 
+def test_conjunction_screening_computation():
+    # Verify close approach evaluation between two orbits
+    primary_pos = [7000.0, 0.0, 0.0]
+    secondary_pos = [7001.2, 0.8, 0.5]
+    import numpy as np
+    diff = np.array(primary_pos) - np.array(secondary_pos)
+    miss_dist = float(np.linalg.norm(diff))
+    assert 1.0 < miss_dist < 2.0
+    lvl, score = conjunction_screening_engine.compute_risk_classification(miss_dist, 13.5)
+    assert lvl in [RiskLevel.HIGH, RiskLevel.CRITICAL]
+    assert score > 70.0
+
+
 @pytest.mark.asyncio
 async def test_conjunction_screening_api(async_client: AsyncClient):
     # First sync catalog with sample data
@@ -80,3 +93,10 @@ async def test_conjunction_screening_api(async_client: AsyncClient):
     list_data = list_resp.json()
     assert "items" in list_data
     assert "total" in list_data
+
+    # Non-existent primary returns 404
+    not_found = await async_client.post(
+        "/api/conjunctions/screen",
+        json={"primary_norad_id": 9999999}
+    )
+    assert not_found.status_code == 404

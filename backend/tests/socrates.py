@@ -62,6 +62,37 @@ def test_socrates_benchmark_comparison():
     assert comparison["metrics"]["concordance_score_pct"] > 90.0
 
 
+def test_socrates_benchmark_service_pipeline():
+    # Directly verify benchmark processing against SOCRATES fixture records
+    tca_time = datetime(2026, 11, 16, 14, 22, 15, tzinfo=timezone.utc)
+    soc_record = SocratesConjunctionRecord(
+        primary_norad_id=25544,
+        primary_name="ISS (ZARYA)",
+        secondary_norad_id=39872,
+        secondary_name="FENGYUN 1C DEBRIS",
+        tca=tca_time,
+        min_range_km=1.420,
+        rel_vel_kms=13.850
+    )
+    orbitguard_event = ConjunctionBase(
+        event_id="CONJ-25544-39872-20261116T142217",
+        primary_norad_id=25544,
+        primary_name="ISS (ZARYA)",
+        secondary_norad_id=39872,
+        secondary_name="FENGYUN 1C DEBRIS",
+        secondary_type="DEBRIS",
+        tca=datetime(2026, 11, 16, 14, 22, 17, tzinfo=timezone.utc),
+        miss_distance_km=1.470,
+        relative_velocity_kms=13.840,
+        risk_score=88.0,
+        risk_level=RiskLevel.HIGH,
+        status=ConjunctionStatus.DETECTED
+    )
+    res = socrates_service.compare_screening_with_socrates([orbitguard_event], [soc_record])
+    assert res["matched_events_count"] == 1
+    assert "metrics" in res
+
+
 @pytest.mark.asyncio
 async def test_socrates_api_endpoint(async_client: AsyncClient):
     resp = await async_client.post("/api/conjunctions/socrates/compare")

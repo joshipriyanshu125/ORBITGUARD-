@@ -10,19 +10,137 @@ db: Optional[AsyncIOMotorDatabase] = None
 is_mock_db: bool = False
 
 
+class AsyncMockCursor:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def sort(self, *args, **kwargs):
+        self._cursor = self._cursor.sort(*args, **kwargs)
+        return self
+
+    def skip(self, *args, **kwargs):
+        self._cursor = self._cursor.skip(*args, **kwargs)
+        return self
+
+    def limit(self, *args, **kwargs):
+        self._cursor = self._cursor.limit(*args, **kwargs)
+        return self
+
+    async def to_list(self, length: Optional[int] = None):
+        docs = list(self._cursor)
+        if length is not None:
+            return docs[:length]
+        return docs
+
+    def __aiter__(self):
+        self._iter = iter(list(self._cursor))
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+class AsyncMockCollection:
+    def __init__(self, collection):
+        self._col = collection
+
+    async def insert_one(self, *args, **kwargs):
+        return self._col.insert_one(*args, **kwargs)
+
+    async def insert_many(self, *args, **kwargs):
+        return self._col.insert_many(*args, **kwargs)
+
+    async def update_one(self, *args, **kwargs):
+        return self._col.update_one(*args, **kwargs)
+
+    async def update_many(self, *args, **kwargs):
+        return self._col.update_many(*args, **kwargs)
+
+    async def find_one(self, *args, **kwargs):
+        return self._col.find_one(*args, **kwargs)
+
+    async def count_documents(self, *args, **kwargs):
+        return self._col.count_documents(*args, **kwargs)
+
+    async def create_index(self, *args, **kwargs):
+        try:
+            return self._col.create_index(*args, **kwargs)
+        except Exception:
+            return None
+
+    async def create_indexes(self, *args, **kwargs):
+        return None
+
+    async def delete_many(self, *args, **kwargs):
+        return self._col.delete_many(*args, **kwargs)
+
+    async def delete_one(self, *args, **kwargs):
+        return self._col.delete_one(*args, **kwargs)
+
+    def find(self, *args, **kwargs):
+        return AsyncMockCursor(self._col.find(*args, **kwargs))
+
+
+class AsyncMockDatabase:
+    def __init__(self, db):
+        self._db = db
+
+    def __getitem__(self, name: str) -> AsyncMockCollection:
+        return AsyncMockCollection(self._db[name])
+
+    def __getattr__(self, name: str) -> AsyncMockCollection:
+        return AsyncMockCollection(self._db[name])
+
+    async def command(self, *args, **kwargs):
+        return {"ok": 1.0}
+
+
+class AsyncMockAdmin:
+    async def command(self, *args, **kwargs):
+        return {"ok": 1.0}
+
+
+class AsyncMockClient:
+    def __init__(self):
+        import mongomock
+        self._sync_client = mongomock.MongoClient()
+        self.admin = AsyncMockAdmin()
+
+    def __getitem__(self, name: str) -> AsyncMockDatabase:
+        return AsyncMockDatabase(self._sync_client[name])
+
+    def __getattr__(self, name: str) -> AsyncMockDatabase:
+        return AsyncMockDatabase(self._sync_client[name])
+
+    def close(self):
+        pass
+
+
 async def connect_to_mongo() -> AsyncIOMotorDatabase:
-    """Connect to MongoDB Atlas or fallback to mongomock-motor if offline/testing."""
+    """Connect to MongoDB Atlas or fallback to in-memory mongomock if offline/testing."""
     global client, db, is_mock_db
     
+    import sys
+    import os
     # Check if testing or explicit mock requested
-    if settings.ENVIRONMENT == "test":
+    is_test_env = (
+        'pytest' in sys.modules
+        or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        or os.environ.get("ENVIRONMENT") == "test"
+        or settings.ENVIRONMENT == "test"
+        or "mock" in settings.MONGODB_URI
+    )
+    if is_test_env:
+        if client is not None and is_mock_db and db is not None:
+            return db
         try:
-            from mongomock_motor import AsyncMongoMockClient
             logger.info("Using in-memory MongoMock for test environment")
-            client = AsyncMongoMockClient()
+            client = AsyncMockClient()
             db = client[settings.MONGODB_DB_NAME]
             is_mock_db = True
-            await create_indexes(db)
             return db
         except Exception as e:
             logger.warning(f"MongoMock init failed: {e}. Trying standard client...")
@@ -59,11 +177,9 @@ async def connect_to_mongo() -> AsyncIOMotorDatabase:
     except Exception as exc:
         logger.warning(f"Could not connect to external MongoDB ({repr(exc)}). Falling back to in-memory mock client.")
         try:
-            from mongomock_motor import AsyncMongoMockClient
-            client = AsyncMongoMockClient()
+            client = AsyncMockClient()
             db = client[settings.MONGODB_DB_NAME]
             is_mock_db = True
-            await create_indexes(db)
             logger.info("Fallback in-memory MongoMock initialized successfully.")
             return db
         except Exception as inner_exc:
@@ -73,7 +189,7 @@ async def connect_to_mongo() -> AsyncIOMotorDatabase:
 
 async def close_mongo_connection():
     global client
-    if client:
+    if client and not is_mock_db:
         client.close()
         logger.info("MongoDB connection closed.")
 

@@ -1,5 +1,8 @@
 import pytest
 from httpx import AsyncClient
+from app.core.config import settings
+from app.services.celestrak import celestrak_service
+from app.services.sgp4_engine import sgp4_engine
 
 
 @pytest.mark.asyncio
@@ -61,3 +64,45 @@ async def test_catalog_sync_and_retrieval(async_client: AsyncClient):
     assert "longitude_deg" in first_pt
     assert "altitude_km" in first_pt
     assert "disclaimer" in orbit_data
+
+    # 5. Non-existent satellite returns 404
+    not_found_resp = await async_client.get("/api/satellites/9999999")
+    assert not_found_resp.status_code == 404
+
+
+def test_root_and_system_disclaimer():
+    assert settings.PROJECT_NAME == "ORBITGUARD AI"
+    assert "analytical and illustrative orbital assessments" in settings.SYSTEM_DISCLAIMER
+    assert "Explicit human-in-the-loop authorization is required" in settings.SYSTEM_DISCLAIMER
+
+
+def test_catalog_station_fixtures():
+    satellites = celestrak_service.get_offline_sample_data("stations")
+    assert len(satellites) > 0
+    iss = next((s for s in satellites if s.norad_id == 25544), None)
+    assert iss is not None
+    assert iss.norad_id == 25544
+    assert iss.name == "ISS (ZARYA)"
+    assert 400.0 < iss.apogee_km < 440.0
+
+
+def test_satellite_orbit_propagation_service():
+    satellites = celestrak_service.get_offline_sample_data("stations")
+    iss = next(s for s in satellites if s.norad_id == 25544)
+    res = sgp4_engine.propagate_orbit_path(
+        norad_id=iss.norad_id,
+        name=iss.name,
+        tle_line1=iss.tle_line1,
+        tle_line2=iss.tle_line2,
+        epoch=iss.epoch,
+        start_time=iss.epoch,
+        duration_hours=2.0,
+        step_seconds=300
+    )
+    points = res.points
+    assert len(points) > 10
+    first_pt = points[0]
+    assert first_pt.latitude_deg is not None
+    assert first_pt.longitude_deg is not None
+    assert first_pt.altitude_km is not None
+    assert 400.0 < first_pt.altitude_km < 450.0
