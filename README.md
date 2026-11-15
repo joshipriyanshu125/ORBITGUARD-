@@ -86,14 +86,4 @@ Access Swagger UI interactive documentation at: `http://localhost:8000/docs`
 
 ---
 
-## 5. Environment Variables (`.env.example`)
-```ini
-PORT=8000
-ENVIRONMENT=development
-CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost:3000"]
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB_NAME=orbitguard_db
-CELESTRAK_BASE_URL=https://celestrak.org/NORAD/elements/gp.php
-GEMINI_API_KEY=
-CESIUM_ION_TOKEN=
-```
+
