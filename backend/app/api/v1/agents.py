@@ -20,7 +20,8 @@ router = APIRouter()
 
 
 @router.post("/agents/command", response_model=AgentCommandResponse)
-async def dispatch_agent_command(payload: AgentCommandRequest):
+@router.post("/agents/orchestrate", response_model=AgentCommandResponse)
+async def dispatch_agent_command(payload: Dict[str, Any] = Body(...)):
     """
     Week 8 Deliverable: Autonomous AI Command Bar Endpoint.
     - Dispatches multi-agent workflow coordinated by Agent Orchestrator.
@@ -30,10 +31,13 @@ async def dispatch_agent_command(payload: AgentCommandRequest):
     - Locks any generated avoidance burn into an Approval Checkpoint.
     """
     try:
+        query_text = payload.get("query") or payload.get("goal") or "Analyze orbital collision risk"
+        target_id = payload.get("target_norad_id")
+        session_id = payload.get("session_id")
         response = await agent_orchestrator.run_investigation(
-            query=payload.query,
-            target_norad_id=payload.target_norad_id,
-            session_id=payload.session_id
+            query=query_text,
+            target_norad_id=target_id,
+            session_id=session_id
         )
         return response
     except Exception as e:
@@ -79,6 +83,7 @@ async def get_agent_session_memory(session_id: str):
 
 
 @router.get("/agents/proposals", response_model=List[Dict[str, Any]])
+@router.get("/agents/proposals/pending", response_model=List[Dict[str, Any]])
 async def list_maneuver_proposals(
     status: Optional[str] = Query(default=None, description="Filter by PENDING, APPROVED, REJECTED"),
     target_norad_id: Optional[int] = Query(default=None),

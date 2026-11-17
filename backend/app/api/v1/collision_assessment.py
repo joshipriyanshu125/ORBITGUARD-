@@ -42,7 +42,8 @@ class ConjunctionRankingRequest(BaseModel):
 
 
 @router.post("/collision-assessment/evaluate", response_model=CollisionAssessmentResult)
-async def evaluate_collision_encounter(payload: EvaluateCollisionRequest):
+@router.post("/collision/calculate-probability")
+async def evaluate_collision_encounter(payload: Dict[str, Any] = Body(...)):
     """
     Week 7 Deliverable: Collision Assessment Evaluation Endpoint.
     - Calculates 3D Euclidean, LVLH (RIC), and B-plane miss distances.
@@ -50,32 +51,48 @@ async def evaluate_collision_encounter(payload: EvaluateCollisionRequest):
     - Computes analytical Foster 2D and Monte Carlo collision probabilities.
     - Synthesizes an explainability report with sensitivity analysis and HITL directive.
     """
-    ev_id = payload.event_id or f"CONJ-{payload.primary_norad_id}-{payload.secondary_norad_id}-{int(datetime.now(timezone.utc).timestamp())}"
-    tca = payload.tca or datetime.now(timezone.utc)
+    p_norad = payload.get("primary_norad_id", 25544)
+    s_norad = payload.get("secondary_norad_id", 39872)
+    ev_id = payload.get("event_id") or f"CONJ-{p_norad}-{s_norad}-{int(datetime.now(timezone.utc).timestamp())}"
+    tca_val = payload.get("tca")
+    tca = datetime.fromisoformat(tca_val) if tca_val and isinstance(tca_val, str) else datetime.now(timezone.utc)
 
-    r1 = np.array(payload.primary_position_eci, dtype=np.float64)
-    v1 = np.array(payload.primary_velocity_eci, dtype=np.float64)
-    r2 = np.array(payload.secondary_position_eci, dtype=np.float64)
-    v2 = np.array(payload.secondary_velocity_eci, dtype=np.float64)
+    r1_raw = payload.get("primary_position_eci") or payload.get("primary_r") or [6800.0, 0.0, 0.0]
+    v1_raw = payload.get("primary_velocity_eci") or payload.get("primary_v") or [0.0, 7.6, 0.0]
+    r2_raw = payload.get("secondary_position_eci") or payload.get("secondary_r") or [6801.2, 0.5, 0.2]
+    v2_raw = payload.get("secondary_velocity_eci") or payload.get("secondary_v") or [0.0, -7.5, 0.0]
+
+    r1 = np.array(r1_raw, dtype=np.float64)
+    v1 = np.array(v1_raw, dtype=np.float64)
+    r2 = np.array(r2_raw, dtype=np.float64)
+    v2 = np.array(v2_raw, dtype=np.float64)
 
     result = collision_assessment_engine.assess_collision(
         event_id=ev_id,
-        primary_norad_id=payload.primary_norad_id,
-        primary_name=payload.primary_name,
-        secondary_norad_id=payload.secondary_norad_id,
-        secondary_name=payload.secondary_name,
-        secondary_type=payload.secondary_type,
+        primary_norad_id=p_norad,
+        primary_name=payload.get("primary_name", "ISS (ZARYA)"),
+        secondary_norad_id=s_norad,
+        secondary_name=payload.get("secondary_name", "FENGYUN 1C DEBRIS"),
+        secondary_type=payload.get("secondary_type", "DEBRIS"),
         r1_eci=r1,
         v1_eci=v1,
         r2_eci=r2,
         v2_eci=v2,
         tca=tca,
-        lead_time_hours=payload.lead_time_hours,
-        hard_body_radius_m=payload.hard_body_radius_m,
-        bstar_primary=payload.bstar_primary,
-        bstar_secondary=payload.bstar_secondary
+        lead_time_hours=float(payload.get("lead_time_hours", 24.0)),
+        hard_body_radius_m=float(payload.get("hard_body_radius_m", 15.0)),
+        bstar_primary=float(payload.get("bstar_primary", 0.0001)),
+        bstar_secondary=float(payload.get("bstar_secondary", 0.0003))
     )
-    return result
+    # Also attach top-level convenience fields for the UI calculator
+    res_dict = result.model_dump()
+    res_dict["miss_distance_km"] = result.geometry.miss_distance_km
+    res_dict["collision_probability"] = result.probabilistic.collision_probability
+    res_dict["foster_pc_sci"] = result.probabilistic.collision_probability_sci
+    res_dict["nasa_cara_tier"] = result.probabilistic.nasa_cara_tier.value
+    res_dict["b_plane_xi_km"] = result.geometry.b_plane_x_km
+    res_dict["b_plane_zeta_km"] = result.geometry.b_plane_z_km
+    return res_dict
 
 
 @router.post("/collision-assessment/rank", response_model=ConjunctionRankingResponse)
@@ -186,3 +203,52 @@ async def get_collision_explainability_report(event_id: str):
     )
 
     return assessment.explainability_report
+
+
+@router.post("/collision/explainability-report")
+async def generate_explainability_report_from_payload(payload: Dict[str, Any] = Body(...)):
+    """
+    Week 7 & 10 Deliverable: Direct explainability report synthesis for frontend UI.
+    """
+    p_name = payload.get("primary_name", "ISS (ZARYA)")
+    p_id = payload.get("primary_norad_id", 25544)
+    s_name = payload.get("secondary_name", "FENGYUN 1C DEBRIS")
+    s_id = payload.get("secondary_norad_id", 39872)
+    s_type = payload.get("secondary_type", "DEBRIS")
+    miss_km = float(payload.get("miss_distance_km", 0.45))
+    v_rel = float(payload.get("relative_velocity_kms", 14.2))
+
+    r1 = np.array([6800.0, 0.0, 0.0])
+    v1 = np.array([0.0, 7.6, 0.0])
+    r2 = np.array([6800.0 + miss_km * 0.4, miss_km * 0.8, miss_km * 0.4])
+    v2 = np.array([0.0, 7.6 - v_rel, 0.0])
+
+    ev_id = f"REPORT-{p_id}-{s_id}"
+    assessment = collision_assessment_engine.assess_collision(
+        event_id=ev_id,
+        primary_norad_id=p_id,
+        primary_name=p_name,
+        secondary_norad_id=s_id,
+        secondary_name=s_name,
+        secondary_type=s_type,
+        r1_eci=r1,
+        v1_eci=v1,
+        r2_eci=r2,
+        v2_eci=v2,
+        tca=datetime.now(timezone.utc),
+        lead_time_hours=24.0,
+        hard_body_radius_m=15.0
+    )
+
+    report = assessment.explainability_report
+    return {
+        "event_id": ev_id,
+        "report_text": f"COLLISION RISK ASSESSMENT & EXPLAINABILITY REPORT [{ev_id}]\n"
+                       f"Primary: {p_name} (NORAD {p_id}) vs Secondary: {s_name} (NORAD {s_id})\n"
+                       f"Executive Summary: {report.executive_summary}\n\n"
+                       f"Physical Geometry: {report.geometry_explanation}\n\n"
+                       f"Uncertainty Breakdown: {report.uncertainty_explanation}\n\n"
+                       f"Probabilistic CARA Risk: {report.probabilistic_explanation}\n\n"
+                       f"Human-in-the-Loop Directive: {report.hitl_recommendation}",
+        "generated_at": datetime.now(timezone.utc).isoformat()
+    }

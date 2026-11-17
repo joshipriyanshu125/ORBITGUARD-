@@ -10,6 +10,7 @@ router = APIRouter()
 
 
 @router.get("/satellites/{norad_id}/orbit", response_model=OrbitPropagationResponse)
+@router.get("/propagation/{norad_id}/orbit", response_model=OrbitPropagationResponse)
 async def get_propagated_orbit(
     norad_id: int,
     duration_hours: float = Query(default=24.0, ge=1.0, le=168.0, description="Propagation horizon in hours (max 7 days)"),

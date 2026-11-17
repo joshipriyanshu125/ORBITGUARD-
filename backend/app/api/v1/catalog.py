@@ -50,16 +50,19 @@ async def sync_catalog(
 
 
 @router.get("/satellites")
+@router.get("/catalog")
 async def list_satellites(
     object_type: Optional[ObjectType] = Query(None, description="Filter by PAYLOAD, DEBRIS, ROCKET_BODY"),
     search: Optional[str] = Query(None, description="Filter by name regex or NORAD ID"),
+    q: Optional[str] = Query(None, description="Alias for search query"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500)
 ):
     """List satellites and debris in the catalog with pagination and filtering."""
+    query_str = search or q
     results = await satellite_repo.list_satellites(
         object_type=object_type.value if object_type else None,
-        search=search,
+        search=query_str,
         skip=skip,
         limit=limit
     )
@@ -76,6 +79,7 @@ async def list_satellites(
 
 
 @router.get("/satellites/{norad_id}", response_model=SatelliteResponse)
+@router.get("/catalog/{norad_id}", response_model=SatelliteResponse)
 async def get_satellite(norad_id: int):
     """Retrieve full details of a specific satellite by NORAD ID."""
     sat = await satellite_repo.get_by_norad_id(norad_id)
