@@ -116,7 +116,11 @@ flowchart TD
 The test suite validates physics accuracy, numerical stability, agent reliability, and API performance. All test files adhere to the strict `no-test-prefix` repository convention.
 
 ```bash
+# Windows (PowerShell):
 .\backend\.venv\Scripts\pytest.exe .\backend -v
+
+# Linux / macOS (Bash):
+./backend/.venv/bin/pytest ./backend -v
 ```
 
 ### Test Suite Summary:
@@ -140,6 +144,7 @@ The test suite validates physics accuracy, numerical stability, agent reliabilit
 
 ### Backend Setup
 ```bash
+# From repository root
 cd backend
 
 # Create virtualenv and install dependencies
@@ -147,15 +152,22 @@ uv venv
 uv pip install -e ".[dev]"
 
 # Run test suite
+# Windows:
 .venv\Scripts\pytest -v
+# Linux / macOS:
+.venv/bin/pytest -v
 
 # Start FastAPI development server
+# Windows:
 .venv\Scripts\uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Linux / macOS:
+.venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 Interactive Swagger documentation available at: `http://localhost:8000/docs`
 
 ### Frontend Setup
 ```bash
+# Open a second terminal at repository root (or return to root from backend via: cd ..)
 cd frontend
 
 # Install packages
