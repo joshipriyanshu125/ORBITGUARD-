@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 class CatalogPositionsRequest(BaseModel):
-    norad_ids: List[int] = Field(..., min_length=1, max_length=500)
+    norad_ids: List[int] = Field(..., min_length=1, max_length=3000)
 
 
 @router.post("/propagation/positions")

@@ -1,9 +1,4 @@
-<<<<<<< HEAD
-
-import React, { useState, useEffect } from 'react';
-=======
 import React, { useEffect, useMemo, useState } from 'react';
->>>>>>> bc48c4f (Major bugs fixed)
 import {
   Cpu,
   Send,

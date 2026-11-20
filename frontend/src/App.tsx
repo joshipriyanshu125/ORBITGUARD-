@@ -21,7 +21,7 @@ export const App: React.FC = () => {
   const loadData = useCallback(async () => {
     const [healthData, catalogRes, conjData, propData] = await Promise.allSettled([
       apiService.getHealth(),
-      apiService.searchCatalog('', 500),
+      apiService.searchCatalog('', 2500),
       apiService.getConjunctions(200),
       apiService.getPendingProposals()
     ]);

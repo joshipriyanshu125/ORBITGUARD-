@@ -146,7 +146,7 @@ export const OrbitalExplorer: React.FC<OrbitalExplorerProps> = ({
     let cancelled = false;
     const load = async () => {
       try {
-        const data = await apiService.getCatalogPositions(satellites.slice(0, 500).map((s) => s.norad_id));
+        const data = await apiService.getCatalogPositions(satellites.slice(0, 2500).map((s) => s.norad_id));
         if (cancelled) return;
         const map = new Map<number, LivePosition>();
         data.items.forEach((item) => map.set(item.norad_id, item));

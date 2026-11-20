@@ -56,7 +56,7 @@ async def list_satellites(
     search: Optional[str] = Query(None, description="Filter by name regex or NORAD ID"),
     q: Optional[str] = Query(None, description="Alias for search query"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=500)
+    limit: int = Query(500, ge=1, le=5000)
 ):
     """List satellites and debris in the catalog with pagination and filtering."""
     query_str = search or q
