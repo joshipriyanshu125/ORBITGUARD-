@@ -1,420 +1,364 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertOctagon,
-  ShieldAlert,
-  Calculator,
-  Compass,
-  TrendingUp,
   FileText,
-  Activity,
-  Layers,
-  ArrowRight,
-  Filter,
-  CheckCircle,
-  ExternalLink,
-  Info
+  Radar,
+  RefreshCw,
+  Satellite as SatelliteIcon,
+  ChevronRight
 } from 'lucide-react';
-import type { ConjunctionSummary } from '../../types';
+import type { ConjunctionSummary, SatelliteSummary } from '../../types';
 import { apiService } from '../../services/api';
 
 interface CollisionRiskCenterProps {
   conjunctions: ConjunctionSummary[];
+  satellites: SatelliteSummary[];
   onSelectConjunctionForSimulation?: (conjunction: ConjunctionSummary) => void;
+  onRefresh: () => Promise<void>;
 }
+
+const formatUtc = (value?: string | null) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return `${date.toISOString().replace('T', ' ').slice(0, 19)} UTC`;
+};
+
+const tierStyle = (tier?: string) => {
+  switch (tier) {
+    case 'CRITICAL': return 'bg-rose-950 text-rose-300 border-rose-800';
+    case 'HIGH': return 'bg-orange-950 text-orange-300 border-orange-800';
+    case 'MEDIUM': return 'bg-amber-950 text-amber-300 border-amber-800';
+    default: return 'bg-slate-900 text-slate-400 border-slate-700';
+  }
+};
+
+const formatReport = (eventId: string, conj: ConjunctionSummary, report: any) => {
+  const lines = [
+    `COLLISION RISK ASSESSMENT & EXPLAINABILITY REPORT [${eventId}]`,
+    `Primary: ${conj.primary_name} (NORAD ${conj.primary_norad_id}) vs Secondary: ${conj.secondary_name} (NORAD ${conj.secondary_norad_id})`,
+    `TCA: ${formatUtc(conj.tca)} | Miss: ${conj.miss_distance_km.toFixed(3)} km | Rel. velocity: ${conj.relative_speed_kms.toFixed(2)} km/s`,
+    '',
+    `Executive Summary: ${report.executive_summary}`,
+    '',
+    `Physical Geometry: ${report.geometry_explanation}`,
+    '',
+    `Uncertainty Breakdown: ${report.uncertainty_explanation}`,
+    '',
+    `Probabilistic CARA Risk: ${report.probabilistic_explanation}`,
+    '',
+    `Human-in-the-Loop Directive: ${report.hitl_recommendation}`
+  ];
+  return lines.join('\n');
+};
 
 export const CollisionRiskCenter: React.FC<CollisionRiskCenterProps> = ({
   conjunctions,
-  onSelectConjunctionForSimulation
+  satellites,
+  onSelectConjunctionForSimulation,
+  onRefresh
 }) => {
-  // Manual Calculator States
-  const [primaryNorad, setPrimaryNorad] = useState('25544');
-  const [secondaryNorad, setSecondaryNorad] = useState('39872');
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [calcResult, setCalcResult] = useState<any | null>(null);
+  const [selectedConjunction, setSelectedConjunction] = useState<ConjunctionSummary | null>(null);
+  const [reportText, setReportText] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [isLoadingReport, setIsLoadingReport] = useState(false);
 
-  // Selected conjunction for detailed inspection & report
-  const [selectedConjunction, setSelectedConjunction] = useState<ConjunctionSummary | null>(
-    conjunctions.length > 0 ? conjunctions[0] : null
-  );
-  const [explainReport, setExplainReport] = useState<string | null>(null);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [screenNoradId, setScreenNoradId] = useState<string>('');
+  const [isScreening, setIsScreening] = useState(false);
+  const [screenMessage, setScreenMessage] = useState<string | null>(null);
 
-  // Run Collision Probability Calculator
-  const handleCalculateProbability = async () => {
-    setIsCalculating(true);
+  useEffect(() => {
+    setSelectedConjunction((prev) => {
+      if (prev && conjunctions.some((c) => c.conjunction_id === prev.conjunction_id)) return prev;
+      return conjunctions[0] ?? null;
+    });
+  }, [conjunctions]);
+
+  useEffect(() => {
+    if (!screenNoradId && satellites.length > 0) {
+      setScreenNoradId(String(satellites[0].norad_id));
+    }
+  }, [satellites, screenNoradId]);
+
+  const highRiskCount = conjunctions.filter(
+    (c) => c.risk_tier === 'CRITICAL' || c.risk_tier === 'HIGH'
+  ).length;
+
+  const earliest = useMemo(() => {
+    if (conjunctions.length === 0) return null;
+    return [...conjunctions].sort((a, b) => new Date(a.tca).getTime() - new Date(b.tca).getTime())[0];
+  }, [conjunctions]);
+
+  const closest = useMemo(() => {
+    if (conjunctions.length === 0) return null;
+    return [...conjunctions].sort((a, b) => a.miss_distance_km - b.miss_distance_km)[0];
+  }, [conjunctions]);
+
+  const handleScreening = async () => {
+    setIsScreening(true);
+    setScreenMessage(null);
     try {
-      // Coordinate inputs for encounter
-      const res = await apiService.calculateCollisionProbability({
-        primary_r: [6800.0, 0.0, 0.0],
-        primary_v: [0.0, 7.6, 0.0],
-        secondary_r: [6800.35, 0.28, 0.15],
-        secondary_v: [0.0, -6.6, 0.0],
-        hard_body_radius_m: 15.0
-      });
-      setCalcResult(res);
-    } catch (err) {
-      console.error('Calculation error:', err);
+      const result = await apiService.screenConjunctions({ primary_norad_id: Number(screenNoradId) });
+      setScreenMessage(
+        `Screened ${result.candidates_screened ?? 0} candidates for ${result.primary_name ?? screenNoradId}: ` +
+        `${result.conjunctions_detected ?? 0} conjunction(s) detected.`
+      );
+      await onRefresh();
+    } catch (err: any) {
+      setScreenMessage(err?.response?.data?.detail || 'Conjunction screening failed.');
     } finally {
-      setIsCalculating(false);
+      setIsScreening(false);
     }
   };
 
-  // Generate explainability report for a conjunction
   const handleGenerateReport = async (conj: ConjunctionSummary) => {
-    setIsGeneratingReport(true);
+    setIsLoadingReport(true);
+    setReportError(null);
     try {
-      const res = await apiService.generateExplainabilityReport({
-        primary_norad_id: conj.primary_norad_id,
-        primary_name: conj.primary_name,
-        secondary_norad_id: conj.secondary_norad_id,
-        secondary_name: conj.secondary_name,
-        tca: conj.tca,
-        miss_distance_km: conj.miss_distance_km,
-        relative_velocity_kms: conj.relative_speed_kms,
-        collision_probability: conj.collision_probability || 0.00035,
-        nasa_cara_tier: conj.nasa_cara_tier || 'RED_ALERT',
-        b_plane_xi_km: conj.b_plane_xi_km || 0.25,
-        b_plane_zeta_km: conj.b_plane_zeta_km || 0.35,
-        recommended_burn_direction: 'PROGRADE',
-        delta_v_ms: 0.85,
-        fuel_mass_kg: 118.0
-      });
-      setExplainReport(res.report_text);
-    } catch (err) {
-      console.error('Report error:', err);
+      const report = await apiService.getCollisionReport(conj.conjunction_id);
+      setReportText(formatReport(conj.conjunction_id, conj, report));
+    } catch (err: any) {
+      setReportText(null);
+      setReportError(err?.response?.data?.detail || 'Explainability report is unavailable for this event.');
     } finally {
-      setIsGeneratingReport(false);
+      setIsLoadingReport(false);
     }
   };
 
   return (
     <div className="space-y-6 pb-12 font-mono">
-      {/* Top Header Metrics (Matching Image 4) */}
+      {/* Real stored-event metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Tracked Objects */}
         <div className="p-4 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Tracked Objects</span>
-          <div className="text-2xl font-black text-slate-100 mt-1">30,350+</div>
-          <span className="text-[11px] text-cyan-400 mt-2 block">Real-time Space-Track & CelesTrak</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Stored Conjunctions</span>
+          <div className="text-2xl font-black text-slate-100 mt-1">{conjunctions.length}</div>
+          <span className="text-[11px] text-cyan-400 mt-2 block">From catalog screening</span>
         </div>
 
-        {/* Active Conjunctions (24h) */}
         <div className="p-4 rounded-2xl bg-[#090f1d] border border-amber-500/30 shadow-lg">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Active Conjunctions (24h)</span>
-          <div className="text-2xl font-black text-amber-400 mt-1">
-            {conjunctions.length > 0 ? conjunctions.length : 39}
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">High / Critical Risk</span>
+          <div className={`text-2xl font-black mt-1 ${highRiskCount > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+            {highRiskCount}
           </div>
-          <span className="text-[11px] text-amber-300 mt-2 block">Predicted close approaches &lt; 5.0 km</span>
+          <span className="text-[11px] text-slate-400 mt-2 block">Risk tier HIGH or CRITICAL</span>
         </div>
 
-        {/* Kessler Risk Index */}
         <div className="p-4 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Kessler Risk Index</span>
-          <div className="text-2xl font-black text-yellow-400 mt-1">MODERATE</div>
-          <span className="text-[10px] text-slate-400 mt-2 block">LEO 600-1000 km: Highest density</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Earliest TCA</span>
+          <div className="text-sm font-bold text-slate-200 mt-2">
+            {earliest ? formatUtc(earliest.tca) : 'No events'}
+          </div>
+          <span className="text-[10px] text-slate-500 mt-2 block truncate">
+            {earliest ? earliest.conjunction_id : '—'}
+          </span>
         </div>
 
-        {/* Fragmentation Events */}
         <div className="p-4 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Fragmentation Events</span>
-          <div className="text-2xl font-black text-emerald-400 mt-1">0 Active</div>
-          <span className="text-[11px] text-emerald-400 mt-2 block">No new breakup cloud detected</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Closest Approach</span>
+          <div className="text-2xl font-black text-cyan-300 mt-1">
+            {closest ? `${closest.miss_distance_km.toFixed(2)} km` : '—'}
+          </div>
+          <span className="text-[10px] text-slate-500 mt-2 block truncate">
+            {closest ? `${closest.primary_name} vs ${closest.secondary_name}` : 'No events'}
+          </span>
         </div>
       </div>
 
-      {/* Orbit Distribution & Collision Probability Calculator Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (4 cols): Orbit Distribution & Calculator */}
-        <div className="lg:col-span-4 space-y-4">
-          {/* Orbit Distribution Card (Matching Image 4) */}
-          <div className="p-5 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-xl space-y-3">
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
-              <Layers className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Orbital Distribution</span>
-            </h3>
-
-            <div className="space-y-2.5 text-xs">
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-cyan-400 font-semibold">• LEO (200-2,000 km)</span>
-                  <span className="text-slate-300">25,791 (85%)</span>
-                </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-cyan-500 h-1.5 rounded-full" style={{ width: '85%' }} />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-yellow-400 font-semibold">• MEO (2,000-35,786 km)</span>
-                  <span className="text-slate-300">1,820 (6%)</span>
-                </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-yellow-500 h-1.5 rounded-full" style={{ width: '6%' }} />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-rose-400 font-semibold">• GEO (~35,786 km)</span>
-                  <span className="text-slate-300">1,554 (5%)</span>
-                </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-rose-500 h-1.5 rounded-full" style={{ width: '5%' }} />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-purple-400 font-semibold">• HEO / Other</span>
-                  <span className="text-slate-300">587 (2%)</span>
-                </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: '2%' }} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive Collision Probability Calculator */}
-          <div className="p-5 rounded-2xl bg-[#090f1d] border border-cyan-500/30 shadow-xl space-y-3.5">
-            <h3 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
-              <Calculator className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Collision Probability (Pc)</span>
-            </h3>
-
-            <div className="space-y-2.5 text-xs">
-              <div>
-                <label className="text-[10px] text-slate-400 block mb-1">OBJECT 1 (NORAD ID / NAME)</label>
-                <input
-                  type="text"
-                  value={primaryNorad}
-                  onChange={(e) => setPrimaryNorad(e.target.value)}
-                  placeholder="e.g. 25544 or ISS"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-slate-400 block mb-1">OBJECT 2 (NORAD ID / NAME)</label>
-                <input
-                  type="text"
-                  value={secondaryNorad}
-                  onChange={(e) => setSecondaryNorad(e.target.value)}
-                  placeholder="e.g. 39872 or FENGYUN 1C"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 text-xs"
-                />
-              </div>
-
-              <button
-                onClick={handleCalculateProbability}
-                disabled={isCalculating}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md mt-2"
-              >
-                {isCalculating ? (
-                  <span>Computing Foster 2D & Monte Carlo...</span>
-                ) : (
-                  <>
-                    <Activity className="w-3.5 h-3.5" />
-                    <span>Compute Probability</span>
-                  </>
-                )}
-              </button>
-
-              {/* Calculator Output Display */}
-              {calcResult && (
-                <div className="p-3 rounded-xl bg-slate-950 border border-cyan-800/60 space-y-1.5 text-[11px] animate-in fade-in">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Miss Distance:</span>
-                    <span className="text-cyan-300 font-bold">{calcResult.miss_distance_km.toFixed(3)} km</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Foster 2D Pc:</span>
-                    <span className="text-rose-400 font-bold">{calcResult.foster_pc_sci || calcResult.collision_probability}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">NASA CARA Tier:</span>
-                    <span className="text-amber-400 font-bold">{calcResult.nasa_cara_tier}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">B-Plane (\u03BE, \u03B6):</span>
-                    <span className="text-slate-300">{calcResult.b_plane_xi_km?.toFixed(2)}, {calcResult.b_plane_zeta_km?.toFixed(2)} km</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Screening control */}
+      <div className="p-4 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-xl flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+          <Radar className="w-4 h-4 text-cyan-400" />
+          Screen close approaches
         </div>
+        <select
+          value={screenNoradId}
+          onChange={(e) => setScreenNoradId(e.target.value)}
+          className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 min-w-56"
+        >
+          {satellites.length === 0 && <option value="">Catalog is empty</option>}
+          {satellites.map((sat) => (
+            <option key={sat.norad_id} value={sat.norad_id}>
+              {sat.name} (NORAD {sat.norad_id})
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleScreening}
+          disabled={isScreening || !screenNoradId}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs font-bold"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isScreening ? 'animate-spin' : ''}`} />
+          {isScreening ? 'Screening…' : 'Run screening'}
+        </button>
+        {screenMessage && <span className="text-[11px] text-slate-400">{screenMessage}</span>}
+      </div>
 
-        {/* Right Column (8 cols): Risk-Ranked Events Table & Detailed Inspection */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="p-5 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <AlertOctagon className="w-4 h-4 text-rose-400" />
-                <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider">
-                  Risk-Ranked Conjunction Events (NASA CARA Standard)
-                </h3>
-              </div>
-              <span className="text-[10px] text-slate-500">Sorted by UPI Composite Risk Score</span>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Event table */}
+        <div className="xl:col-span-2 p-5 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <AlertOctagon className="w-4 h-4 text-rose-400" />
+              <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider">
+                Stored Conjunction Events
+              </h3>
             </div>
+            <span className="text-[10px] text-slate-500">SGP4 screened catalog events</span>
+          </div>
 
-            {/* Table */}
+          {conjunctions.length === 0 ? (
+            <div className="py-14 text-center text-xs text-slate-500 space-y-2">
+              <SatelliteIcon className="w-8 h-8 text-slate-700 mx-auto" />
+              <p>No conjunction events are stored.</p>
+              <p className="text-[10px]">Sync the catalog, then run screening for a real catalog object above.</p>
+            </div>
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
                 <thead>
                   <tr className="text-slate-500 border-b border-slate-800">
-                    <th className="py-2.5 px-3">Conjunction ID</th>
+                    <th className="py-2.5 px-3">Event</th>
                     <th className="py-2.5 px-3">Primary vs Secondary</th>
+                    <th className="py-2.5 px-3">TCA</th>
                     <th className="py-2.5 px-3">Miss (km)</th>
                     <th className="py-2.5 px-3">Rel V (km/s)</th>
-                    <th className="py-2.5 px-3">Pc</th>
-                    <th className="py-2.5 px-3">CARA Tier</th>
+                    <th className="py-2.5 px-3">Risk</th>
                     <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                  {conjunctions.map((c) => {
-                    const isRed = c.risk_tier === 'CRITICAL' || c.risk_tier === 'HIGH' || (c.collision_probability && c.collision_probability >= 1e-4);
-                    return (
-                      <tr
-                        key={c.conjunction_id}
-                        onClick={() => setSelectedConjunction(c)}
-                        className={`hover:bg-slate-900/60 cursor-pointer transition-colors ${
-                          selectedConjunction?.conjunction_id === c.conjunction_id
-                            ? 'bg-cyan-950/40 border-l-2 border-cyan-400'
-                            : ''
-                        }`}
-                      >
-                        <td className="py-3 px-3 font-bold text-cyan-400">{c.conjunction_id}</td>
-                        <td className="py-3 px-3">
-                          <span className="text-slate-200 font-semibold">{c.primary_name}</span>
-                          <span className="text-slate-500 block text-[10px]">vs {c.secondary_name}</span>
-                        </td>
-                        <td className="py-3 px-3 font-bold text-slate-100">{c.miss_distance_km.toFixed(2)}</td>
-                        <td className="py-3 px-3">{c.relative_speed_kms.toFixed(1)}</td>
-                        <td className="py-3 px-3 font-bold text-rose-400">
-                          {c.collision_probability_sci || '3.45e-4'}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isRed
-                                ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                                : 'bg-amber-950 text-amber-300 border border-amber-800'
-                            }`}
-                          >
-                            {isRed ? 'RED ALERT' : 'AMBER WATCH'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleGenerateReport(c);
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold transition-colors mr-1.5"
-                          >
-                            Report
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {conjunctions.map((conj) => (
+                    <tr
+                      key={conj.conjunction_id}
+                      onClick={() => setSelectedConjunction(conj)}
+                      className={`hover:bg-slate-900/60 cursor-pointer transition-colors ${
+                        selectedConjunction?.conjunction_id === conj.conjunction_id
+                          ? 'bg-cyan-950/40 border-l-2 border-cyan-400'
+                          : ''
+                      }`}
+                    >
+                      <td className="py-3 px-3 font-bold text-cyan-400">{conj.conjunction_id}</td>
+                      <td className="py-3 px-3">
+                        <span className="text-slate-200 font-semibold">{conj.primary_name}</span>
+                        <span className="text-slate-500 block text-[10px]">vs {conj.secondary_name}</span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-400">{formatUtc(conj.tca)}</td>
+                      <td className="py-3 px-3 font-bold text-slate-100">{conj.miss_distance_km.toFixed(2)}</td>
+                      <td className="py-3 px-3">{conj.relative_speed_kms.toFixed(1)}</td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${tierStyle(conj.risk_tier)}`}>
+                          {conj.risk_tier ?? 'UNKNOWN'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleGenerateReport(conj);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold transition-colors mr-1.5"
+                        >
+                          Report
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectConjunctionForSimulation?.(conj);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-[10px] font-bold transition-colors"
+                        >
+                          Simulate
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+          )}
 
-            {/* Selected Conjunction Details Box */}
-            {selectedConjunction && (
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3 mt-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-200">
-                    Detailed Event Assessment: {selectedConjunction.conjunction_id}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleGenerateReport(selectedConjunction)}
-                      disabled={isGeneratingReport}
-                      className="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-700 text-cyan-300 text-xs font-bold flex items-center gap-1.5 transition-colors"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>{isGeneratingReport ? 'Generating...' : 'Synthesize Report'}</span>
-                    </button>
-                  </div>
-                </div>
+          {reportError && <p className="text-[11px] text-rose-400">{reportError}</p>}
+        </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-slate-300">
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">TCA Epoch</span>
-                    <span className="font-bold text-slate-200">{new Date(selectedConjunction.tca).toUTCString()}</span>
+        {/* Selected event details */}
+        <div className="p-5 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-xl space-y-4">
+          <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
+            <FileText className="w-4 h-4 text-cyan-400" />
+            Event Detail
+          </h3>
+
+          {!selectedConjunction ? (
+            <p className="text-xs text-slate-500 py-8 text-center">
+              Select a stored conjunction to inspect its real catalog-derived geometry.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1.5 text-[11px]">
+                {[
+                  ['Event', selectedConjunction.conjunction_id],
+                  ['Primary', `${selectedConjunction.primary_name} (${selectedConjunction.primary_norad_id})`],
+                  ['Secondary', `${selectedConjunction.secondary_name} (${selectedConjunction.secondary_norad_id})`],
+                  ['Secondary Type', selectedConjunction.secondary_type ?? 'UNKNOWN'],
+                  ['TCA', formatUtc(selectedConjunction.tca)],
+                  ['Miss Distance', `${selectedConjunction.miss_distance_km.toFixed(3)} km`],
+                  ['Relative Velocity', `${selectedConjunction.relative_speed_kms.toFixed(2)} km/s`],
+                  ['Risk Tier', selectedConjunction.risk_tier ?? 'UNKNOWN'],
+                  ['Risk Score', selectedConjunction.risk_score != null ? selectedConjunction.risk_score.toFixed(1) : '—'],
+                  ['Status', selectedConjunction.status ?? '—']
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 border-b border-slate-800/50 py-1">
+                    <span className="text-slate-500">{label}</span>
+                    <span className="text-slate-200 text-right break-all">{value}</span>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">Relative Velocity</span>
-                    <span className="font-bold text-cyan-400">{selectedConjunction.relative_speed_kms} km/s</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">B-Plane \u03BE (Xi)</span>
-                    <span className="font-bold text-slate-200">{selectedConjunction.b_plane_xi_km || '0.28'} km</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">B-Plane \u03B6 (Zeta)</span>
-                    <span className="font-bold text-slate-200">{selectedConjunction.b_plane_zeta_km || '0.35'} km</span>
-                  </div>
-                </div>
+                ))}
               </div>
-            )}
-          </div>
+
+              <button
+                onClick={() => handleGenerateReport(selectedConjunction)}
+                disabled={isLoadingReport}
+                className="w-full py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                {isLoadingReport ? 'Synthesizing…' : 'Synthesize report from catalog TLEs'}
+              </button>
+
+              {onSelectConjunctionForSimulation && (
+                <button
+                  onClick={() => onSelectConjunctionForSimulation(selectedConjunction)}
+                  className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-2"
+                >
+                  Open in Simulation Lab
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Bottom Live Conjunction Alert Ticker (Matching Image 4) */}
-      <div className="p-3 rounded-xl bg-[#0e0707] border border-rose-900/60 flex items-center gap-3 overflow-hidden text-xs">
-        <div className="flex items-center gap-1.5 text-rose-400 font-bold shrink-0">
-          <AlertOctagon className="w-4 h-4 animate-pulse" />
-          <span>LIVE TICKER:</span>
-        </div>
-        <div className="flex-1 overflow-x-auto whitespace-nowrap text-slate-300 space-x-6 text-[11px]">
-          <span className="text-rose-300 font-semibold">
-            ▲ CONJUNCTION METEOSAT-3 0.82 KM - SL-12 R/B [T-18H]
-          </span>
-          <span className="text-slate-600">|</span>
-          <span className="text-amber-300 font-semibold">
-            ▲ CONJUNCTION ISS (ZARYA) 0.45 KM - FENGYUN-1C DEBRIS [T-24H] (NASA RED ALERT)
-          </span>
-          <span className="text-slate-600">|</span>
-          <span className="text-cyan-300 font-semibold">
-            ▲ STARLINK-2541 1.2 KM - COSMOS 2251 DEBRIS [T-36H]
-          </span>
-        </div>
-      </div>
-
-      {/* Assessment Report Modal Dialog */}
-      {explainReport && (
+      {/* Report modal */}
+      {reportText && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="max-w-2xl w-full rounded-2xl bg-[#090f1f] border border-cyan-500/50 p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-cyan-400" />
                 <h3 className="font-bold text-slate-100 text-sm">
-                  NASA CARA Collision Assessment & Explainability Report
+                  Collision Assessment & Explainability Report
                 </h3>
               </div>
-              <button
-                onClick={() => setExplainReport(null)}
-                className="text-slate-400 hover:text-white text-sm"
-              >
+              <button onClick={() => setReportText(null)} className="text-slate-400 hover:text-white text-sm">
                 ✕
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">
-              {explainReport}
+              {reportText}
             </div>
 
             <div className="flex justify-end pt-2">
               <button
-                onClick={() => setExplainReport(null)}
+                onClick={() => setReportText(null)}
                 className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs"
               >
                 Close Report

@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 class ScreenConjunctionsRequest(BaseModel):
-    primary_norad_id: int = Field(default=25544, description="Target satellite NORAD Catalog ID (e.g. 25544 for ISS)")
+    primary_norad_id: int = Field(..., description="Target satellite NORAD Catalog ID from the catalog")
     horizon_hours: float = Field(default=48.0, ge=1.0, le=168.0, description="Screening time horizon in hours")
     threshold_km: float = Field(default=25.0, ge=0.5, le=100.0, description="Close approach distance threshold in km")
     altitude_margin_km: float = Field(default=50.0, ge=10.0, le=200.0, description="Broad-phase altitude buffer in km")

@@ -5,6 +5,7 @@ import type {
   ConjunctionSummary,
   AgentProposal,
   AgentMemoryEntry,
+  ExplainabilityReport,
   ManeuverCandidate,
   TrajectoryComparisonResult,
   HypotheticalScenarioResponse
@@ -18,6 +19,33 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json'
   },
   timeout: 45000
+});
+
+const normalizeSatellite = (raw: any): SatelliteSummary => ({
+  ...raw,
+  intl_designator: raw.intl_designator || raw.omm?.OBJECT_ID || undefined,
+  period_minutes: raw.period_minutes ?? raw.period_min ?? undefined,
+  line1: raw.line1 ?? raw.tle_line1,
+  line2: raw.line2 ?? raw.tle_line2,
+  object_type: raw.object_type || 'UNKNOWN'
+});
+
+const normalizeConjunction = (raw: any): ConjunctionSummary => ({
+  ...raw,
+  conjunction_id: raw.conjunction_id ?? raw.event_id,
+  relative_speed_kms: raw.relative_speed_kms ?? raw.relative_velocity_kms ?? 0,
+  risk_tier: raw.risk_tier ?? raw.risk_level,
+  risk_score: raw.risk_score,
+  created_at: raw.created_at ?? raw.updated_at ?? raw.tca
+});
+
+const normalizeProposal = (raw: any): AgentProposal => ({
+  ...raw,
+  proposal_id: raw.proposal_id ?? raw._id,
+  delta_v_ms: raw.delta_v_ms ?? raw.proposed_delta_v_ms,
+  post_maneuver_miss_km: raw.post_maneuver_miss_km ?? raw.projected_miss_distance_km,
+  fuel_consumption_kg: raw.fuel_consumption_kg,
+  requires_human_approval: raw.requires_human_approval ?? true
 });
 
 export const apiService = {
@@ -35,19 +63,26 @@ export const apiService = {
     const items = Array.isArray(res.data) ? res.data : (res.data.items || res.data.data || []);
     return {
       count: res.data.total || items.length,
-      data: items
+      data: items.map(normalizeSatellite)
     };
   },
 
   async getSatellite(norad_id: number): Promise<SatelliteSummary> {
     const res = await apiClient.get(`/catalog/${norad_id}`);
+    return normalizeSatellite(res.data);
+  },
+
+  async syncCatalog(groups: string[] = ['stations', 'fengyun-1c-debris']): Promise<any> {
+    const query = groups.map((g) => `groups=${encodeURIComponent(g)}`).join('&');
+    // Full group sync walks thousands of records; allow well beyond the default timeout.
+    const res = await apiClient.post(`/catalog/sync?${query}`, null, { timeout: 600000 });
     return res.data;
   },
 
   // SGP4 Propagation
-  async getSatelliteOrbitPath(norad_id: number, duration_hours: number = 1.6, step_minutes: number = 2): Promise<any> {
+  async getSatelliteOrbitPath(norad_id: number, duration_hours: number = 1.6, step_seconds: number = 120): Promise<any> {
     const res = await apiClient.get(`/propagation/${norad_id}/orbit`, {
-      params: { duration_hours, step_minutes }
+      params: { duration_hours, step_seconds }
     });
     return res.data;
   },
@@ -57,48 +92,41 @@ export const apiService = {
     return res.data;
   },
 
+  async getCatalogPositions(norad_ids: number[]): Promise<{ timestamp: string; count: number; items: Array<{ norad_id: number; name: string; object_type: string; lat: number; lon: number; alt_km: number }> }> {
+    const res = await apiClient.post('/propagation/positions', { norad_ids });
+    return res.data;
+  },
+
   // Conjunctions & Risk
   async getConjunctions(limit: number = 50): Promise<ConjunctionSummary[]> {
     try {
       const res = await apiClient.get('/conjunctions', { params: { limit } });
-      return Array.isArray(res.data) ? res.data : (res.data.conjunctions || []);
+      const items = Array.isArray(res.data) ? res.data : (res.data.items || []);
+      return items.map(normalizeConjunction);
     } catch {
       return [];
     }
   },
 
-  async screenConjunctions(params: { primary_norad_id?: number; threshold_km?: number; time_window_hours?: number }): Promise<any> {
+  async screenConjunctions(params: { primary_norad_id: number; threshold_km?: number; horizon_hours?: number; altitude_margin_km?: number }): Promise<any> {
     const res = await apiClient.post('/conjunctions/screen', params);
     return res.data;
   },
 
-  async calculateCollisionProbability(payload: {
-    primary_r: number[];
-    primary_v: number[];
-    secondary_r: number[];
-    secondary_v: number[];
-    hard_body_radius_m?: number;
-  }): Promise<any> {
-    const res = await apiClient.post('/collision/calculate-probability', payload);
+  async getCollisionReport(event_id: string): Promise<ExplainabilityReport> {
+    const res = await apiClient.get(`/collision-assessment/report/${encodeURIComponent(event_id)}`);
     return res.data;
   },
 
   async generateExplainabilityReport(payload: {
     primary_norad_id: number;
-    primary_name: string;
     secondary_norad_id: number;
-    secondary_name: string;
-    tca: string;
-    miss_distance_km: number;
-    relative_velocity_kms: number;
-    collision_probability: number;
-    nasa_cara_tier: string;
-    b_plane_xi_km: number;
-    b_plane_zeta_km: number;
-    recommended_burn_direction?: string;
-    delta_v_ms?: number;
-    fuel_mass_kg?: number;
-  }): Promise<{ report_text: string; generated_at: string }> {
+    event_id?: string;
+    tca?: string;
+    primary_name?: string;
+    secondary_name?: string;
+    secondary_type?: string;
+  }): Promise<{ event_id: string; report_text: string; generated_at: string }> {
     const res = await apiClient.post('/collision/explainability-report', payload);
     return res.data;
   },
@@ -116,15 +144,17 @@ export const apiService = {
   async getPendingProposals(): Promise<AgentProposal[]> {
     try {
       const res = await apiClient.get('/agents/proposals/pending');
-      return Array.isArray(res.data) ? res.data : [];
+      const items = Array.isArray(res.data) ? res.data : [];
+      return items.map(normalizeProposal);
     } catch {
       return [];
     }
   },
 
-  async decideProposal(proposal_id: string, decision: 'APPROVED' | 'REJECTED', notes: string = ''): Promise<AgentProposal> {
+  async decideProposal(proposal_id: string, decision: 'APPROVED' | 'REJECTED', operator_name: string, notes: string = ''): Promise<any> {
     const res = await apiClient.post(`/agents/proposals/${proposal_id}/decision`, {
       decision,
+      operator_name,
       notes
     });
     return res.data;
@@ -150,10 +180,10 @@ export const apiService = {
     desired_miss_distance_km: number;
     relative_velocity_kms: number;
     lead_time_hours: number;
-    semi_major_axis_km?: number;
-    spacecraft_dry_mass_kg?: number;
-    spacecraft_propellant_mass_kg?: number;
-    thruster_isp_seconds?: number;
+    semi_major_axis_km: number;
+    spacecraft_dry_mass_kg: number;
+    spacecraft_propellant_mass_kg: number;
+    thruster_isp_seconds: number;
   }): Promise<ManeuverCandidate[]> {
     const res = await apiClient.post('/simulation/candidates', payload);
     return Array.isArray(res.data) ? res.data : [];
@@ -164,8 +194,11 @@ export const apiService = {
     delta_v_in_track_ms: number;
     delta_v_cross_track_ms: number;
     initial_miss_distance_km: number;
-    semi_major_axis_km?: number;
-    lead_time_hours?: number;
+    semi_major_axis_km: number;
+    lead_time_hours: number;
+    spacecraft_dry_mass_kg: number;
+    spacecraft_propellant_mass_kg: number;
+    thruster_isp_seconds: number;
     num_steps?: number;
   }): Promise<TrajectoryComparisonResult> {
     const res = await apiClient.post('/simulation/compare-trajectories', payload);
@@ -175,15 +208,5 @@ export const apiService = {
   async runHypotheticalScenario(payload: any): Promise<HypotheticalScenarioResponse> {
     const res = await apiClient.post('/simulation/scenarios/run', payload);
     return res.data;
-  },
-
-  // ML Intelligence
-  async getMLSummary(norad_id: number): Promise<any> {
-    try {
-      const res = await apiClient.get(`/ml/summary/${norad_id}`);
-      return res.data;
-    } catch {
-      return null;
-    }
   }
 };

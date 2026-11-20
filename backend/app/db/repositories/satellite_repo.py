@@ -57,6 +57,18 @@ class SatelliteRepository:
             doc["_id"] = str(doc["_id"])
         return doc
 
+    async def get_by_norad_ids(self, norad_ids: List[int]) -> List[Dict[str, Any]]:
+        """Retrieve multiple satellites in one query."""
+        if not norad_ids:
+            return []
+        cursor = self.collection.find({"norad_id": {"$in": norad_ids}})
+        results = []
+        async for doc in cursor:
+            if "_id" in doc:
+                doc["_id"] = str(doc["_id"])
+            results.append(doc)
+        return results
+
     async def list_satellites(
         self,
         object_type: Optional[str] = None,

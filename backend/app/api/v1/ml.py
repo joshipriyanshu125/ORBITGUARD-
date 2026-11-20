@@ -29,7 +29,7 @@ class ConjunctionRiskEvaluationRequest(BaseModel):
     lead_time_hours: float = Field(default=24.0, ge=0.1)
     secondary_is_debris: bool = Field(default=True)
     primary_altitude_km: float = Field(default=415.0)
-    ml_anomaly_score: float = Field(default=0.1, ge=0.0, le=1.0)
+    ml_anomaly_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class CollisionProbabilityRequest(BaseModel):
@@ -41,8 +41,8 @@ class CollisionProbabilityRequest(BaseModel):
 
 
 class MissionBriefRequest(BaseModel):
-    event_id: Optional[str] = Field(default=None, description="Conjunction event ID")
-    primary_norad_id: int = Field(default=25544)
+    event_id: str = Field(..., description="Stored conjunction event ID")
+    primary_norad_id: int = Field(..., description="Primary satellite NORAD ID")
     query: Optional[str] = Field(default=None, description="Operator specific question")
 
 
@@ -161,33 +161,22 @@ async def generate_mission_brief(payload: MissionBriefRequest):
     """
     primary = await satellite_repo.get_by_norad_id(payload.primary_norad_id)
     if not primary:
-        primary = {"name": f"SAT-{payload.primary_norad_id}", "norad_id": payload.primary_norad_id, "perigee_km": 415.0}
+        raise HTTPException(status_code=404, detail=f"Satellite {payload.primary_norad_id} not found in catalog.")
 
-    conjunction = None
-    if payload.event_id:
-        conjunction = await conjunction_repo.get_by_event_id(payload.event_id)
-
+    conjunction = await conjunction_repo.get_by_event_id(payload.event_id)
     if not conjunction:
-        conjunction = {
-            "secondary_name": "COSMOS 2251 DEBRIS",
-            "secondary_norad_id": 34125,
-            "tca": "2026-11-17T08:15:00Z",
-            "miss_distance_km": 1.42,
-            "relative_velocity_kms": 12.8,
-            "risk_level": "CRITICAL"
-        }
+        raise HTTPException(status_code=404, detail=f"Conjunction event {payload.event_id} not found.")
 
-    # Evaluate ML anomaly and collision prob
-    ano_metrics = anomaly_detector.evaluate_deltas({
-        "delta_semi_major_axis_km_day": -0.015,
-        "delta_eccentricity_day": 0.00001,
-        "delta_inclination_deg_day": 0.0005,
-        "delta_bstar_day": 0.00001,
-        "delta_energy_day": -0.00005
-    })
+    # Evaluate ML anomaly from real TLE history when available.
+    history = await satellite_repo.get_history(payload.primary_norad_id, limit=2)
+    if len(history) >= 2:
+        deltas = feature_extractor.extract_time_series_deltas(history[0], history[1])
+        ano_metrics = anomaly_detector.evaluate_deltas(deltas)
+    else:
+        ano_metrics = {"anomaly_score": 0.0, "classification": "NOT_COMPUTED"}
 
     prob_metrics = collision_probability_estimator.compute_foster_probability(
-        miss_distance_km=float(conjunction.get("miss_distance_km", 1.42))
+        miss_distance_km=float(conjunction["miss_distance_km"])
     )
 
     brief = await mission_intelligence_engine.generate_mission_intelligence_report(

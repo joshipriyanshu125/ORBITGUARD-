@@ -81,7 +81,8 @@ async def test_tool_error_recovery_missing_satellite():
     prop = await tool_registry.propagate_trajectory(norad_id=1, duration_hours=1.0)
     assert prop is not None
     assert "points_count" in prop
-    assert prop["points_count"] > 0
+    assert prop["points_count"] == 0
+    assert prop["start_time"] is None
 
 
 # ------ Tool Registry Completeness ------
@@ -104,10 +105,11 @@ def test_tool_registry_completeness():
         assert callable(func), f"Tool '{tool_name}' is not callable"
 
 
-async def test_tool_registry_execution():
+async def test_tool_registry_execution(async_client):
     """
     Execute tools and verify structured output.
     """
+    await async_client.post("/api/catalog/sync?groups=stations")
     telemetry = await tool_registry.query_satellite_telemetry(25544)
     assert isinstance(telemetry, dict)
     assert "norad_id" in telemetry
@@ -119,8 +121,6 @@ async def test_tool_registry_execution():
     assessment = await tool_registry.assess_collision_risk(
         primary_norad_id=25544,
         secondary_norad_id=39872,
-        miss_distance_km=1.5,
-        relative_velocity_kms=12.0,
         lead_time_hours=18.0
     )
     assert isinstance(assessment, dict)
@@ -163,6 +163,7 @@ async def test_approval_workflow_state_machine():
         target_norad_id=25544,
         desired_miss_km=8.0,
         current_miss_km=1.0,
+        burn_epoch=datetime.now(timezone.utc),
         direction=BurnDirection.PROGRADE
     )
     assert plan["approval_status"] == "PENDING"

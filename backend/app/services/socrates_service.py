@@ -9,6 +9,11 @@ from app.core.logging import logger
 from app.models.conjunction import ConjunctionBase
 
 
+def _as_utc(value: datetime) -> datetime:
+    """Mongo round-trips drop tzinfo; normalize before any datetime math."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
 class SocratesConjunctionRecord:
     def __init__(
         self,
@@ -93,7 +98,7 @@ class SocratesService:
         return records
 
     async def fetch_socrates_conjunctions(self) -> List[SocratesConjunctionRecord]:
-        """Fetch live SOCRATES reports from CelesTrak with graceful fallback to standard verification dataset."""
+        """Fetch live SOCRATES reports from CelesTrak. Returns no records when the feed is unavailable."""
         import os
         import sys
         if os.environ.get("ENVIRONMENT") == "test" or "pytest" in sys.modules:
@@ -105,10 +110,11 @@ class SocratesService:
                 res = await client.get(url)
                 if res.status_code == 200:
                     return self.parse_socrates_text(res.text)
+                logger.warning(f"SOCRATES endpoint returned HTTP {res.status_code}.")
         except Exception as e:
-            logger.warning(f"Could not reach live SOCRATES endpoint ({e}). Using benchmark reference dataset.")
+            logger.warning(f"Could not reach live SOCRATES endpoint ({e}).")
 
-        return self.get_reference_benchmark_dataset()
+        return []
 
     def get_reference_benchmark_dataset(self) -> List[SocratesConjunctionRecord]:
         """Provides representative benchmark ground truth conjunctions."""
@@ -149,7 +155,7 @@ class SocratesService:
                 )
 
                 if pair_match:
-                    t_delta_sec = abs((s_event.tca - soc.tca).total_seconds())
+                    t_delta_sec = abs((_as_utc(s_event.tca) - _as_utc(soc.tca)).total_seconds())
                     if t_delta_sec <= time_tolerance_seconds:
                         range_delta_km = abs(s_event.miss_distance_km - soc.min_range_km)
                         vel_delta_kms = abs(s_event.relative_velocity_kms - soc.rel_vel_kms)

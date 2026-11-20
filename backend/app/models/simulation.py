@@ -41,7 +41,7 @@ class ManeuverCandidate(BaseModel):
     fuel_mass_kg: float = Field(..., description="Propellant mass consumed via Tsiolkovsky rocket equation")
     fuel_efficiency_km_per_kg: float = Field(..., description="Miss distance gain per kg of fuel")
     residual_fuel_budget_kg: float = Field(..., description="Remaining usable propellant mass")
-    secondary_conjunction_risk: str = "NONE_DETECTED"
+    secondary_conjunction_risk: str = "NOT_ASSESSED"
     recommendation_rank: int = 1
     tradeoff_rationale: str
 
@@ -77,16 +77,17 @@ class TrajectoryComparisonResult(BaseModel):
 class HypotheticalScenarioRequest(BaseModel):
     scenario_id: Optional[str] = None
     scenario_type: ScenarioType = ScenarioType.IMMINENT_DEBRIS_COLLISION
-    primary_norad_id: int = Field(default=25544, description="Primary satellite NORAD ID")
-    primary_name: str = Field(default="ISS (ZARYA)")
-    secondary_norad_id: int = Field(default=39872, description="Secondary object NORAD ID")
-    secondary_name: str = Field(default="FENGYUN 1C DEBRIS")
-    initial_miss_distance_km: float = Field(default=0.45, ge=0.01)
-    relative_velocity_kms: float = Field(default=14.2, ge=0.1)
-    lead_time_hours: float = Field(default=24.0, ge=1.0)
-    spacecraft_dry_mass_kg: float = Field(default=420000.0, description="Spacecraft dry mass in kg (e.g. ISS)")
-    spacecraft_propellant_mass_kg: float = Field(default=2500.0, description="Available propellant mass in kg")
-    thruster_isp_seconds: float = Field(default=310.0, description="Specific impulse Isp in seconds")
+    primary_norad_id: int = Field(..., description="Primary satellite NORAD ID")
+    primary_name: str = Field(...)
+    secondary_norad_id: int = Field(..., description="Secondary object NORAD ID")
+    secondary_name: str = Field(...)
+    semi_major_axis_km: float = Field(..., ge=6400.0, description="Primary orbit semi-major axis in km")
+    initial_miss_distance_km: float = Field(..., ge=0.01)
+    relative_velocity_kms: float = Field(..., ge=0.1)
+    lead_time_hours: float = Field(..., ge=1.0)
+    spacecraft_dry_mass_kg: float = Field(..., gt=0, description="Spacecraft dry mass in kg")
+    spacecraft_propellant_mass_kg: float = Field(..., ge=0, description="Available propellant mass in kg")
+    thruster_isp_seconds: float = Field(..., gt=0, description="Specific impulse Isp in seconds")
     max_fuel_budget_kg: Optional[float] = Field(default=None, description="Max allowed propellant for CAM")
 
 

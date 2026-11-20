@@ -158,6 +158,8 @@ async def connect_to_mongo() -> AsyncIOMotorDatabase:
         client_kwargs = {
             "serverSelectionTimeoutMS": 10000,
             "connectTimeoutMS": 10000,
+            # BSON stores UTC; decode as tz-aware so API responses are unambiguous.
+            "tz_aware": True,
         }
         
         # Use certifi for TLS validation on Windows

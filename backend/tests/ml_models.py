@@ -1,11 +1,13 @@
 import pytest
 import numpy as np
+from datetime import datetime, timezone
 from app.ml.lstm_residual_model import trajectory_residual_model
 from app.ml.anomaly_model import anomaly_detector
 from app.ml.risk_model import conjunction_risk_model
 from app.ml.mission_intelligence import mission_intelligence_engine
 from app.ml.analytics import visual_ml_analytics
-from app.models.conjunction import RiskLevel
+from app.models.conjunction import ConjunctionBase, RiskLevel
+from app.db.repositories.conjunction_repo import conjunction_repo
 from httpx import AsyncClient
 
 
@@ -188,10 +190,25 @@ async def test_ml_api_endpoints(async_client: AsyncClient):
     assert "b_plane_visualization" in vis_data
     assert "model_benchmarks" in vis_data
 
-    # 5. Mission brief endpoint
+    # 5. Mission brief endpoint requires a cataloged asset and a stored conjunction
+    await async_client.post("/api/catalog/sync?groups=stations")
+    await conjunction_repo.upsert_conjunction(ConjunctionBase(
+        event_id="CONJ-ML-TEST",
+        primary_norad_id=25544,
+        primary_name="ISS (ZARYA)",
+        secondary_norad_id=39872,
+        secondary_name="FENGYUN 1C DEBRIS",
+        secondary_type="DEBRIS",
+        tca=datetime.now(timezone.utc),
+        miss_distance_km=1.42,
+        relative_velocity_kms=12.8,
+        risk_level=RiskLevel.CRITICAL
+    ))
+
     brief_resp = await async_client.post(
         "/api/ml/mission-brief",
         json={
+            "event_id": "CONJ-ML-TEST",
             "primary_norad_id": 25544,
             "query": "Assess collision threat with Chinese Fengyun debris"
         }
@@ -200,3 +217,9 @@ async def test_ml_api_endpoints(async_client: AsyncClient):
     brief_data = brief_resp.json()
     assert "executive_summary" in brief_data
     assert "technical_findings" in brief_data
+
+    missing_brief = await async_client.post(
+        "/api/ml/mission-brief",
+        json={"event_id": "CONJ-UNKNOWN", "primary_norad_id": 25544}
+    )
+    assert missing_brief.status_code == 404

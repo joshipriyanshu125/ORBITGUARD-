@@ -40,6 +40,8 @@ async def dispatch_agent_command(payload: Dict[str, Any] = Body(...)):
             session_id=session_id
         )
         return response
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error executing agent workflow: {e}")
         raise HTTPException(status_code=500, detail=f"Agent orchestration failed: {str(e)}")

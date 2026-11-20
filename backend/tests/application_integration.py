@@ -62,6 +62,10 @@ async def test_complete_application_api_flow(async_client: AsyncClient):
     prob_res = await async_client.post(
         "/api/collision/calculate-probability",
         json={
+            "primary_norad_id": 25544,
+            "primary_name": "ISS (ZARYA)",
+            "secondary_norad_id": 39872,
+            "secondary_name": "FENGYUN 1C DEBRIS",
             "primary_r": [6800.0, 0.0, 0.0],
             "primary_v": [0.0, 7.6, 0.0],
             "secondary_r": [6800.35, 0.28, 0.15],
@@ -115,6 +119,7 @@ async def test_complete_application_api_flow(async_client: AsyncClient):
             "primary_name": "ISS (ZARYA)",
             "secondary_norad_id": 39872,
             "secondary_name": "FENGYUN 1C DEBRIS",
+            "semi_major_axis_km": 6800.0,
             "initial_miss_distance_km": 0.45,
             "relative_velocity_kms": 14.2,
             "lead_time_hours": 24.0,

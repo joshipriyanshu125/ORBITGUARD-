@@ -10,28 +10,28 @@ from app.models.collision_assessment import (
     ExplainabilityReport
 )
 from app.services.collision_assessment import collision_assessment_engine
+from app.services.sgp4_engine import sgp4_engine
 from app.db.repositories.conjunction_repo import conjunction_repo
 from app.db.repositories.satellite_repo import satellite_repo
 
 router = APIRouter()
 
 
-class EvaluateCollisionRequest(BaseModel):
-    event_id: Optional[str] = Field(default=None, description="Deterministic event ID (generated if omitted)")
-    primary_norad_id: int = Field(default=25544, description="Primary satellite NORAD ID")
-    primary_name: str = Field(default="ISS (ZARYA)")
-    secondary_norad_id: int = Field(default=39872, description="Secondary object NORAD ID")
-    secondary_name: str = Field(default="FENGYUN 1C DEBRIS")
-    secondary_type: str = Field(default="DEBRIS")
-    primary_position_eci: List[float] = Field(default_factory=lambda: [6800.0, 0.0, 0.0], description="ECI position [x, y, z] in km")
-    primary_velocity_eci: List[float] = Field(default_factory=lambda: [0.0, 7.6, 0.0], description="ECI velocity [vx, vy, vz] in km/s")
-    secondary_position_eci: List[float] = Field(default_factory=lambda: [6801.2, 0.5, 0.2], description="ECI position [x, y, z] in km")
-    secondary_velocity_eci: List[float] = Field(default_factory=lambda: [0.0, -7.5, 0.0], description="ECI velocity [vx, vy, vz] in km/s")
-    tca: Optional[datetime] = Field(default=None, description="Time of Closest Approach (defaults to now + 24h)")
-    lead_time_hours: float = Field(default=24.0, ge=0.1, description="Lead time until encounter in hours")
-    hard_body_radius_m: float = Field(default=15.0, ge=0.5, description="Combined hard body radius in meters")
-    bstar_primary: float = Field(default=0.0001, description="Primary BSTAR drag parameter")
-    bstar_secondary: float = Field(default=0.0003, description="Secondary BSTAR drag parameter")
+async def _propagate_catalog_state(norad_id: int, at: datetime):
+    """Return real ECI position/velocity and BSTAR for a cataloged object at a given epoch."""
+    sat = await satellite_repo.get_by_norad_id(norad_id)
+    if not sat:
+        raise HTTPException(status_code=404, detail=f"Satellite {norad_id} not found in catalog.")
+    try:
+        satrec = sgp4_engine.build_satrec(sat["tle_line1"], sat["tle_line2"])
+        point = sgp4_engine.propagate_single(satrec, at)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not propagate satellite {norad_id}: {exc}")
+    if point is None:
+        raise HTTPException(status_code=422, detail=f"SGP4 propagation failed for satellite {norad_id} at TCA.")
+    r = np.array([point.x_km, point.y_km, point.z_km], dtype=np.float64)
+    v = np.array([point.vx_kms, point.vy_kms, point.vz_kms], dtype=np.float64)
+    return r, v, float(sat.get("bstar") or 0.0)
 
 
 class ConjunctionRankingRequest(BaseModel):
@@ -51,16 +51,23 @@ async def evaluate_collision_encounter(payload: Dict[str, Any] = Body(...)):
     - Computes analytical Foster 2D and Monte Carlo collision probabilities.
     - Synthesizes an explainability report with sensitivity analysis and HITL directive.
     """
-    p_norad = payload.get("primary_norad_id", 25544)
-    s_norad = payload.get("secondary_norad_id", 39872)
+    p_norad = payload.get("primary_norad_id")
+    s_norad = payload.get("secondary_norad_id")
+    if p_norad is None or s_norad is None:
+        raise HTTPException(status_code=400, detail="primary_norad_id and secondary_norad_id are required.")
     ev_id = payload.get("event_id") or f"CONJ-{p_norad}-{s_norad}-{int(datetime.now(timezone.utc).timestamp())}"
     tca_val = payload.get("tca")
     tca = datetime.fromisoformat(tca_val) if tca_val and isinstance(tca_val, str) else datetime.now(timezone.utc)
 
-    r1_raw = payload.get("primary_position_eci") or payload.get("primary_r") or [6800.0, 0.0, 0.0]
-    v1_raw = payload.get("primary_velocity_eci") or payload.get("primary_v") or [0.0, 7.6, 0.0]
-    r2_raw = payload.get("secondary_position_eci") or payload.get("secondary_r") or [6801.2, 0.5, 0.2]
-    v2_raw = payload.get("secondary_velocity_eci") or payload.get("secondary_v") or [0.0, -7.5, 0.0]
+    r1_raw = payload.get("primary_position_eci") or payload.get("primary_r")
+    v1_raw = payload.get("primary_velocity_eci") or payload.get("primary_v")
+    r2_raw = payload.get("secondary_position_eci") or payload.get("secondary_r")
+    v2_raw = payload.get("secondary_velocity_eci") or payload.get("secondary_v")
+    if not all([r1_raw, v1_raw, r2_raw, v2_raw]):
+        raise HTTPException(
+            status_code=400,
+            detail="ECI position and velocity vectors are required for both objects."
+        )
 
     r1 = np.array(r1_raw, dtype=np.float64)
     v1 = np.array(v1_raw, dtype=np.float64)
@@ -70,9 +77,9 @@ async def evaluate_collision_encounter(payload: Dict[str, Any] = Body(...)):
     result = collision_assessment_engine.assess_collision(
         event_id=ev_id,
         primary_norad_id=p_norad,
-        primary_name=payload.get("primary_name", "ISS (ZARYA)"),
+        primary_name=payload.get("primary_name") or f"NORAD {p_norad}",
         secondary_norad_id=s_norad,
-        secondary_name=payload.get("secondary_name", "FENGYUN 1C DEBRIS"),
+        secondary_name=payload.get("secondary_name") or f"NORAD {s_norad}",
         secondary_type=payload.get("secondary_type", "DEBRIS"),
         r1_eci=r1,
         v1_eci=v1,
@@ -81,8 +88,8 @@ async def evaluate_collision_encounter(payload: Dict[str, Any] = Body(...)):
         tca=tca,
         lead_time_hours=float(payload.get("lead_time_hours", 24.0)),
         hard_body_radius_m=float(payload.get("hard_body_radius_m", 15.0)),
-        bstar_primary=float(payload.get("bstar_primary", 0.0001)),
-        bstar_secondary=float(payload.get("bstar_secondary", 0.0003))
+        bstar_primary=float(payload.get("bstar_primary", 0.0)),
+        bstar_secondary=float(payload.get("bstar_secondary", 0.0))
     )
     # Also attach top-level convenience fields for the UI calculator
     res_dict = result.model_dump()
@@ -110,54 +117,15 @@ async def rank_conjunction_encounters(payload: ConjunctionRankingRequest):
         candidate_events = stored
 
     if not candidate_events:
-        # Provide representative benchmark encounters if database is currently empty
-        candidate_events = [
-            {
-                "event_id": "CONJ-25544-39872-BENCHMARK-1",
-                "primary_norad_id": 25544,
-                "primary_name": "ISS (ZARYA)",
-                "secondary_norad_id": 39872,
-                "secondary_name": "FENGYUN 1C DEBRIS",
-                "secondary_type": "DEBRIS",
-                "tca": datetime.now(timezone.utc).isoformat(),
-                "lead_time_hours": 14.5,
-                "miss_distance_km": 0.42,
-                "radial_miss_km": 0.08,
-                "relative_velocity_kms": 14.2,
-                "collision_probability": 3.8e-4,
-                "risk_score": 94.0
-            },
-            {
-                "event_id": "CONJ-25544-2251-BENCHMARK-2",
-                "primary_norad_id": 25544,
-                "primary_name": "ISS (ZARYA)",
-                "secondary_norad_id": 34125,
-                "secondary_name": "COSMOS 2251 DEBRIS",
-                "secondary_type": "DEBRIS",
-                "tca": datetime.now(timezone.utc).isoformat(),
-                "lead_time_hours": 42.0,
-                "miss_distance_km": 2.15,
-                "radial_miss_km": 0.45,
-                "relative_velocity_kms": 11.8,
-                "collision_probability": 4.5e-6,
-                "risk_score": 72.0
-            },
-            {
-                "event_id": "CONJ-48274-12345-BENCHMARK-3",
-                "primary_norad_id": 48274,
-                "primary_name": "STARLINK-2541",
-                "secondary_norad_id": 20451,
-                "secondary_name": "SL-16 DEBRIS",
-                "secondary_type": "DEBRIS",
-                "tca": datetime.now(timezone.utc).isoformat(),
-                "lead_time_hours": 68.0,
-                "miss_distance_km": 14.8,
-                "radial_miss_km": 3.2,
-                "relative_velocity_kms": 8.5,
-                "collision_probability": 2.1e-8,
-                "risk_score": 25.0
-            }
-        ]
+        return ConjunctionRankingResponse(
+            status="success",
+            total_events_evaluated=0,
+            immediate_action_count=0,
+            urgent_triage_count=0,
+            elevated_watch_count=0,
+            routine_count=0,
+            ranked_queue=[]
+        )
 
     return collision_assessment_engine.rank_conjunction_events(candidate_events)
 
@@ -166,25 +134,27 @@ async def rank_conjunction_encounters(payload: ConjunctionRankingRequest):
 async def get_collision_explainability_report(event_id: str):
     """
     Week 7 Deliverable: Conjunction Explainability Report Endpoint.
-    Retrieves a conjunction event and generates an operational aerospace briefing
-    with physical geometry analysis, uncertainty assessment, and sensitivity metrics.
+    Retrieves a stored conjunction and re-propagates both objects to its TCA
+    to build the assessment from real catalog ephemerides.
     """
     conj = await conjunction_repo.get_by_event_id(event_id)
+    if not conj:
+        raise HTTPException(status_code=404, detail=f"Conjunction event {event_id} not found.")
 
-    # Use database record or fallback to reference encounter if not in database
-    p_name = conj.get("primary_name", "ISS (ZARYA)") if conj else "ISS (ZARYA)"
-    p_id = conj.get("primary_norad_id", 25544) if conj else 25544
-    s_name = conj.get("secondary_name", "FENGYUN 1C DEBRIS") if conj else "FENGYUN 1C DEBRIS"
-    s_id = conj.get("secondary_norad_id", 39872) if conj else 39872
-    s_type = conj.get("secondary_type", "DEBRIS") if conj else "DEBRIS"
-    miss_km = float(conj.get("miss_distance_km", 1.42)) if conj else 1.42
-    v_rel = float(conj.get("relative_velocity_kms", 13.8)) if conj else 13.8
+    p_id = int(conj["primary_norad_id"])
+    s_id = int(conj["secondary_norad_id"])
+    p_name = conj.get("primary_name") or f"NORAD {p_id}"
+    s_name = conj.get("secondary_name") or f"NORAD {s_id}"
+    s_type = conj.get("secondary_type", "UNKNOWN")
 
-    # Synthesize standard assessment
-    r1 = np.array([6800.0, 0.0, 0.0])
-    v1 = np.array([0.0, 7.6, 0.0])
-    r2 = np.array([6800.0 + miss_km * 0.4, miss_km * 0.8, miss_km * 0.4])
-    v2 = np.array([0.0, 7.6 - v_rel, 0.0])
+    tca_raw = conj.get("tca")
+    tca = datetime.fromisoformat(tca_raw) if isinstance(tca_raw, str) else tca_raw
+    if tca.tzinfo is None:
+        tca = tca.replace(tzinfo=timezone.utc)
+
+    r1, v1, bstar1 = await _propagate_catalog_state(p_id, tca)
+    r2, v2, bstar2 = await _propagate_catalog_state(s_id, tca)
+    lead_time = max(0.1, (tca - datetime.now(timezone.utc)).total_seconds() / 3600.0)
 
     assessment = collision_assessment_engine.assess_collision(
         event_id=event_id,
@@ -197,9 +167,11 @@ async def get_collision_explainability_report(event_id: str):
         v1_eci=v1,
         r2_eci=r2,
         v2_eci=v2,
-        tca=datetime.now(timezone.utc),
-        lead_time_hours=24.0,
-        hard_body_radius_m=15.0
+        tca=tca,
+        lead_time_hours=lead_time,
+        hard_body_radius_m=15.0,
+        bstar_primary=bstar1,
+        bstar_secondary=bstar2
     )
 
     return assessment.explainability_report
@@ -209,21 +181,38 @@ async def get_collision_explainability_report(event_id: str):
 async def generate_explainability_report_from_payload(payload: Dict[str, Any] = Body(...)):
     """
     Week 7 & 10 Deliverable: Direct explainability report synthesis for frontend UI.
+    Uses caller-supplied ECI vectors when present, otherwise real catalog TLE propagation.
     """
-    p_name = payload.get("primary_name", "ISS (ZARYA)")
-    p_id = payload.get("primary_norad_id", 25544)
-    s_name = payload.get("secondary_name", "FENGYUN 1C DEBRIS")
-    s_id = payload.get("secondary_norad_id", 39872)
-    s_type = payload.get("secondary_type", "DEBRIS")
-    miss_km = float(payload.get("miss_distance_km", 0.45))
-    v_rel = float(payload.get("relative_velocity_kms", 14.2))
+    p_id = payload.get("primary_norad_id")
+    s_id = payload.get("secondary_norad_id")
+    if p_id is None or s_id is None:
+        raise HTTPException(status_code=400, detail="primary_norad_id and secondary_norad_id are required.")
+    p_id, s_id = int(p_id), int(s_id)
 
-    r1 = np.array([6800.0, 0.0, 0.0])
-    v1 = np.array([0.0, 7.6, 0.0])
-    r2 = np.array([6800.0 + miss_km * 0.4, miss_km * 0.8, miss_km * 0.4])
-    v2 = np.array([0.0, 7.6 - v_rel, 0.0])
+    p_name = payload.get("primary_name") or f"NORAD {p_id}"
+    s_name = payload.get("secondary_name") or f"NORAD {s_id}"
+    s_type = payload.get("secondary_type", "UNKNOWN")
 
-    ev_id = f"REPORT-{p_id}-{s_id}"
+    tca_val = payload.get("tca")
+    tca = datetime.fromisoformat(tca_val) if isinstance(tca_val, str) else datetime.now(timezone.utc)
+    if tca.tzinfo is None:
+        tca = tca.replace(tzinfo=timezone.utc)
+
+    vectors = [
+        payload.get("primary_position_eci"), payload.get("primary_velocity_eci"),
+        payload.get("secondary_position_eci"), payload.get("secondary_velocity_eci")
+    ]
+    if all(vectors):
+        r1, v1 = np.array(vectors[0], dtype=np.float64), np.array(vectors[1], dtype=np.float64)
+        r2, v2 = np.array(vectors[2], dtype=np.float64), np.array(vectors[3], dtype=np.float64)
+        bstar1 = float(payload.get("bstar_primary", 0.0))
+        bstar2 = float(payload.get("bstar_secondary", 0.0))
+    else:
+        r1, v1, bstar1 = await _propagate_catalog_state(p_id, tca)
+        r2, v2, bstar2 = await _propagate_catalog_state(s_id, tca)
+
+    lead_time = max(0.1, (tca - datetime.now(timezone.utc)).total_seconds() / 3600.0)
+    ev_id = payload.get("event_id") or f"REPORT-{p_id}-{s_id}"
     assessment = collision_assessment_engine.assess_collision(
         event_id=ev_id,
         primary_norad_id=p_id,
@@ -235,9 +224,11 @@ async def generate_explainability_report_from_payload(payload: Dict[str, Any] = 
         v1_eci=v1,
         r2_eci=r2,
         v2_eci=v2,
-        tca=datetime.now(timezone.utc),
-        lead_time_hours=24.0,
-        hard_body_radius_m=15.0
+        tca=tca,
+        lead_time_hours=lead_time,
+        hard_body_radius_m=float(payload.get("hard_body_radius_m", 15.0)),
+        bstar_primary=bstar1,
+        bstar_secondary=bstar2
     )
 
     report = assessment.explainability_report

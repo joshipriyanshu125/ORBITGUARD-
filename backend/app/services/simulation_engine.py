@@ -241,7 +241,6 @@ class SimulationEngine:
                 fuel_mass_kg=fuel_kg,
                 fuel_efficiency_km_per_kg=efficiency,
                 residual_fuel_budget_kg=rem_fuel,
-                secondary_conjunction_risk="NONE_DETECTED",
                 recommendation_rank=1,
                 tradeoff_rationale=rationale
             ))
@@ -257,6 +256,60 @@ class SimulationEngine:
             c.recommendation_rank = idx + 1
 
         return candidates
+
+    def evaluate_custom_maneuver(
+        self,
+        delta_v_radial_ms: float,
+        delta_v_in_track_ms: float,
+        delta_v_cross_track_ms: float,
+        initial_miss_km: float,
+        semi_major_axis_km: float,
+        lead_time_hours: float,
+        spacecraft_dry_mass_kg: float,
+        spacecraft_propellant_mass_kg: float,
+        thruster_isp_seconds: float
+    ) -> ManeuverCandidate:
+        """Build a custom operator burn from its own inputs; every result is computed, not assumed."""
+        total_dv = math.sqrt(delta_v_radial_ms**2 + delta_v_in_track_ms**2 + delta_v_cross_track_ms**2)
+        tca_seconds = lead_time_hours * 3600.0
+        dr, dy, dz = self.compute_clohessy_wiltshire_perturbation(
+            semi_major_axis_km, delta_v_radial_ms, delta_v_in_track_ms, delta_v_cross_track_ms, tca_seconds
+        )
+        post_miss = round(float(math.sqrt((initial_miss_km + dr)**2 + dy**2 + dz**2)), 2)
+
+        total_mass = spacecraft_dry_mass_kg + spacecraft_propellant_mass_kg
+        fuel_kg = self.calculate_propellant_consumption(total_mass, total_dv, thruster_isp_seconds)
+        miss_gain = max(0.1, post_miss - initial_miss_km)
+        efficiency = round(miss_gain / max(0.01, fuel_kg), 5)
+
+        # Analytical Pc estimate for the modeled post-burn miss distance on a circular reference orbit.
+        v_circ = math.sqrt(EARTH_MU / semi_major_axis_km)
+        r1 = np.array([semi_major_axis_km, 0.0, 0.0])
+        v1 = np.array([0.0, v_circ, 0.0])
+        r2 = np.array([semi_major_axis_km + post_miss, 0.0, 0.0])
+        v2 = np.array([0.0, -v_circ, 0.0])
+        geom = collision_assessment_engine.compute_miss_distance_and_geometry(r1, v1, r2, v2)
+        unc = collision_assessment_engine.incorporate_uncertainty(geom, hard_body_radius_m=15.0)
+        prob = collision_assessment_engine.evaluate_probabilistic_risk(geom, unc, n_mc_trials=1000)
+
+        return ManeuverCandidate(
+            candidate_id="SIM-CUSTOM-COMPARE",
+            name="Custom Operator Maneuver",
+            maneuver_type=ManeuverType.PROGRADE_PHASING,
+            burn_direction="PROGRADE" if delta_v_in_track_ms >= 0 else "RETROGRADE",
+            delta_v_ms=round(total_dv, 3),
+            delta_v_vector_lvlh=[delta_v_radial_ms, delta_v_in_track_ms, delta_v_cross_track_ms],
+            burn_epoch=datetime.now(timezone.utc),
+            lead_time_to_tca_hours=lead_time_hours,
+            projected_miss_distance_km=post_miss,
+            post_maneuver_collision_prob=prob.collision_probability,
+            post_maneuver_collision_prob_sci=prob.collision_probability_sci,
+            post_maneuver_cara_tier=prob.nasa_cara_tier.value,
+            fuel_mass_kg=fuel_kg,
+            fuel_efficiency_km_per_kg=efficiency,
+            residual_fuel_budget_kg=round(max(0.0, spacecraft_propellant_mass_kg - fuel_kg), 2),
+            tradeoff_rationale="Custom operator burn evaluated with Clohessy-Wiltshire relative motion and Tsiolkovsky propellant accounting."
+        )
 
     def compare_trajectories(
         self,
@@ -352,7 +405,7 @@ class SimulationEngine:
         6. Synthesizes executive engineering debrief.
         """
         scen_id = request.scenario_id or f"SCEN-{uuid.uuid4().hex[:8].upper()}"
-        sma = 6800.0  # ~420 km LEO baseline (ISS-like)
+        sma = request.semi_major_axis_km
 
         # 1. Baseline encounter assessment
         init_miss = request.initial_miss_distance_km
@@ -403,13 +456,14 @@ class SimulationEngine:
             num_steps=20
         )
 
-        # 5. Secondary risk check
+        # 5. Secondary risk check is not performed here: the post-burn state is modeled,
+        # not propagated against the catalog, so no clearance claim can be made.
         secondary_check = {
-            "status": "PASSED",
-            "screened_catalog_objects": 1988,
+            "status": "NOT_PERFORMED",
+            "screened_catalog_objects": 0,
             "secondary_encounters_detected": 0,
-            "cleared_safety_corridor_km": 15.0,
-            "risk_assessment": "NOMINAL - Post-burn orbit does not penetrate adjacent fragmentation clouds."
+            "cleared_safety_corridor_km": None,
+            "risk_assessment": "Not assessed. Secondary conjunction screening requires propagating the post-burn state against the catalog."
         }
 
         # 6. Scenario title and engineering debrief
@@ -426,15 +480,15 @@ class SimulationEngine:
             f"SIMULATION LABORATORY ENGINEERING DEBRIEF [{scen_id}]\n"
             f"Scenario: {scen_title}\n"
             f"Asset: {request.primary_name} (NORAD {request.primary_norad_id}) vs {request.secondary_name} (NORAD {request.secondary_norad_id})\n\n"
-            f"1. BASELINE SITUATION: Baseline miss distance of {init_miss:.2f} km with relative closing speed of "
-            f"{rel_vel:.2f} km/s at T-{lead_time:.1f}h. Immediate action required under NASA CARA directives.\n"
-            f"2. CANDIDATE EVALUATION: Simulated 5 distinct avoidance trajectories. {optimal.name} emerged as optimal "
-            f"(Rank #1) with delta-V of {optimal.delta_v_ms} m/s, consuming {optimal.fuel_mass_kg} kg of propellant.\n"
+            f"1. BASELINE SITUATION: Assumed miss distance of {init_miss:.2f} km with relative closing speed of "
+            f"{rel_vel:.2f} km/s at T-{lead_time:.1f}h, as supplied by the operator.\n"
+            f"2. CANDIDATE EVALUATION: Simulated {len(candidates)} avoidance trajectories. {optimal.name} ranked first "
+            f"with delta-V of {optimal.delta_v_ms} m/s, consuming {optimal.fuel_mass_kg} kg of propellant.\n"
             f"3. TRAJECTORY DELTA: Post-burn separation expands miss distance to {optimal.projected_miss_distance_km:.2f} km "
-            f"(gain of +{traj_comp.miss_distance_gain_km:.2f} km), reducing collision probability to {optimal.post_maneuver_collision_prob_sci} "
-            f"(Green nominal status).\n"
-            f"4. SECONDARY CLEARANCE: Verified against orbital catalog; zero secondary conjunctions created.\n"
-            f"5. STATUTORY GOVERNANCE: Proposal ready for flight-director HITL review."
+            f"(gain of +{traj_comp.miss_distance_gain_km:.2f} km), with an analytical collision probability estimate of "
+            f"{optimal.post_maneuver_collision_prob_sci} ({optimal.post_maneuver_cara_tier}).\n"
+            f"4. SECONDARY CLEARANCE: Not assessed; no post-burn catalog screening was performed.\n"
+            f"5. GOVERNANCE: Analytical output only. No maneuver was proposed, approved, or uplinked."
         )
 
         return HypotheticalScenarioResponse(

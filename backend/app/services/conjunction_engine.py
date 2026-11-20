@@ -251,7 +251,6 @@ class ConjunctionScreeningEngine:
                     relative_velocity_kms=rel_vel,
                     primary_position_eci=r1,
                     secondary_position_eci=r2,
-                    ml_anomaly_score=0.1,  # Baseline prior to ML pipeline
                     risk_score=risk_sc,
                     risk_level=risk_lvl,
                     status=status,

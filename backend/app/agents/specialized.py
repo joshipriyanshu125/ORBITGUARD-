@@ -38,16 +38,17 @@ class MonitoringAgent(BaseSpecializedAgent):
         logger.info(f"[{self.name}] Inspecting orbital catalog state for NORAD ID {norad_id}...")
         telemetry = await tool_registry.query_satellite_telemetry(norad_id)
         
-        status_tag = "ACTIVE_MONITORING" if telemetry.get("found") else "CATALOG_INSPECTION_FALLBACK"
+        found = telemetry.get("found", False)
         output = {
+            "found": found,
             "satellite_name": telemetry.get("name"),
             "norad_id": norad_id,
-            "object_type": telemetry.get("object_type", "PAYLOAD"),
+            "object_type": telemetry.get("object_type"),
             "apogee_km": telemetry.get("apogee_km"),
             "perigee_km": telemetry.get("perigee_km"),
-            "bstar_drag": telemetry.get("bstar", 0.0001),
-            "telemetry_health": "NOMINAL",
-            "monitoring_status": status_tag
+            "bstar_drag": telemetry.get("bstar"),
+            "telemetry_health": "CATALOG_STATE_ONLY" if found else "UNKNOWN",
+            "monitoring_status": "ACTIVE_MONITORING" if found else "NOT_IN_CATALOG"
         }
         trace = self._create_trace("INSPECT_TELEMETRY", {"norad_id": norad_id}, output)
         return {"output": output, "trace": trace}
@@ -63,12 +64,13 @@ class PredictionAgent(BaseSpecializedAgent):
         logger.info(f"[{self.name}] Propagating trajectory for NORAD ID {norad_id} over {duration_hours}h...")
         prop_data = await tool_registry.propagate_trajectory(norad_id, duration_hours=duration_hours)
         
+        points_count = prop_data.get("points_count") or 0
         output = {
             "norad_id": norad_id,
             "propagator_engine": "SGP4 (WGS-72/84 Analytical)",
             "prediction_horizon_hours": duration_hours,
-            "trajectory_points_computed": prop_data.get("points_count"),
-            "ephemeris_validity": "HIGH_CONFIDENCE",
+            "trajectory_points_computed": points_count,
+            "ephemeris_validity": "COMPUTED" if points_count > 0 else "UNAVAILABLE",
             "start_time": prop_data.get("start_time"),
             "end_time": prop_data.get("end_time")
         }
@@ -86,24 +88,32 @@ class CollisionAssessmentAgent(BaseSpecializedAgent):
         self,
         primary_norad_id: int,
         secondary_norad_id: int,
-        miss_distance_km: float = 1.42,
-        relative_velocity_kms: float = 13.8,
-        lead_time_hours: float = 18.0
+        tca: Optional[datetime] = None,
+        lead_time_hours: Optional[float] = None
     ) -> Dict[str, Any]:
         logger.info(f"[{self.name}] Assessing collision threat between {primary_norad_id} and {secondary_norad_id}...")
         assessment = await tool_registry.assess_collision_risk(
             primary_norad_id=primary_norad_id,
             secondary_norad_id=secondary_norad_id,
-            miss_distance_km=miss_distance_km,
-            relative_velocity_kms=relative_velocity_kms,
+            tca=tca,
             lead_time_hours=lead_time_hours
         )
+
+        if assessment.get("status") in ("not_found", "propagation_failed"):
+            output = {
+                "status": assessment["status"],
+                "message": assessment.get("message"),
+                "requires_maneuver_planning": False
+            }
+            trace = self._create_trace("EVALUATE_COLLISION_PROBABILITY", {"primary": primary_norad_id, "secondary": secondary_norad_id}, output, status="FAILED")
+            return {"output": output, "trace": trace, "full_assessment": assessment}
 
         prob = assessment.get("probabilistic", {})
         geom = assessment.get("geometry", {})
         score = assessment.get("composite_risk_score", 0.0)
 
         output = {
+            "status": "ASSESSED",
             "event_id": assessment.get("event_id"),
             "primary_norad_id": primary_norad_id,
             "secondary_norad_id": secondary_norad_id,
@@ -130,9 +140,12 @@ class MissionPlanningAgent(BaseSpecializedAgent):
         self,
         conjunction_id: str,
         target_norad_id: int,
-        current_miss_km: float = 0.8,
-        desired_miss_km: float = 8.0,
-        direction: BurnDirection = BurnDirection.RADIAL
+        current_miss_km: float,
+        desired_miss_km: float,
+        burn_epoch: datetime,
+        direction: BurnDirection = BurnDirection.RADIAL,
+        spacecraft_mass_kg: Optional[float] = None,
+        isp_seconds: Optional[float] = None
     ) -> Dict[str, Any]:
         logger.info(f"[{self.name}] Planning collision avoidance maneuver for NORAD ID {target_norad_id}...")
         plan_res = await tool_registry.plan_avoidance_maneuver(
@@ -140,7 +153,10 @@ class MissionPlanningAgent(BaseSpecializedAgent):
             target_norad_id=target_norad_id,
             desired_miss_km=desired_miss_km,
             current_miss_km=current_miss_km,
-            direction=direction
+            burn_epoch=burn_epoch,
+            direction=direction,
+            spacecraft_mass_kg=spacecraft_mass_kg,
+            isp_seconds=isp_seconds
         )
 
         output = {
@@ -176,12 +192,26 @@ class IntelligenceReportingAgent(BaseSpecializedAgent):
     ) -> Dict[str, Any]:
         logger.info(f"[{self.name}] Synthesizing operational mission briefing for session {session_id}...")
         
-        p_name = monitoring_data.get("satellite_name", "PRIMARY_ASSET")
+        p_found = monitoring_data.get("found", False)
+        p_name = monitoring_data.get("satellite_name") or "UNKNOWN"
         p_id = monitoring_data.get("norad_id")
-        miss_km = assessment_data.get("miss_distance_km", "N/A")
-        pc_str = assessment_data.get("collision_probability_sci", "N/A")
-        severity = assessment_data.get("operational_severity", "NOMINAL")
-        score = assessment_data.get("composite_risk_score", 0.0)
+        miss_km = assessment_data.get("miss_distance_km")
+        pc_str = assessment_data.get("collision_probability_sci")
+        severity = assessment_data.get("operational_severity") or "NOT_ASSESSED"
+        score = assessment_data.get("composite_risk_score")
+
+        asset_clause = (
+            f"Primary {p_name} (NORAD {p_id}) is present in the catalog.\n"
+            if p_found else
+            f"Primary NORAD {p_id} is not present in the catalog; no orbital state was available.\n"
+        )
+        if miss_km is None:
+            assessment_clause = f"COLLISION ASSESSMENT: {assessment_data.get('message') or 'No conjunction assessment was performed.'}"
+        else:
+            assessment_clause = (
+                f"COLLISION ASSESSMENT: Miss distance is {miss_km} km with evaluated Pc = {pc_str} "
+                f"({severity}, composite priority {score}/100)."
+            )
 
         maneuver_clause = ""
         if planning_data and planning_data.get("approval_checkpoint_enforced"):
@@ -200,13 +230,14 @@ class IntelligenceReportingAgent(BaseSpecializedAgent):
         summary = (
             f"MISSION INTELLIGENCE BRIEFING [Session: {session_id}]\n"
             f"Query: \"{query}\"\n\n"
-            f"1. ASSET STATUS: Primary {p_name} (NORAD {p_id}) is actively tracked with nominal telemetry.\n"
-            f"2. ORBIT PREDICTION: SGP4 trajectory projected over {prediction_data.get('prediction_horizon_hours', 24)}h horizon with high confidence.\n"
-            f"3. COLLISION ASSESSMENT: Miss distance is {miss_km} km with evaluated Pc = {pc_str} "
-            f"({severity} - NASA CARA status, composite priority {score}/100)."
+            f"1. ASSET STATUS: {asset_clause}"
+            f"2. ORBIT PREDICTION: {prediction_data.get('trajectory_points_computed', 0)} SGP4 trajectory points "
+            f"computed over {prediction_data.get('prediction_horizon_hours', 24)}h "
+            f"({prediction_data.get('ephemeris_validity', 'UNAVAILABLE')}).\n"
+            f"3. {assessment_clause}"
             f"{maneuver_clause}\n\n"
-            f"SAFETY DIRECTIVE: In accordance with statutory aerospace regulations, no automated orbital burn "
-            f"shall be commanded without operator sign-off."
+            f"SAFETY DIRECTIVE: Analytical output only. No automated orbital burn shall be commanded "
+            f"without operator sign-off."
         )
 
         output = {
@@ -214,7 +245,7 @@ class IntelligenceReportingAgent(BaseSpecializedAgent):
             "briefing_text": summary,
             "severity": severity,
             "composite_score": score,
-            "audit_compliance": "STATUTORY_AEROSPACE_HITL_VERIFIED"
+            "audit_compliance": "ANALYTICAL_NOT_CERTIFIED"
         }
         trace = self._create_trace("SYNTHESIZE_MISSION_REPORT", {"session_id": session_id}, output)
         return {"output": output, "trace": trace, "summary": summary}

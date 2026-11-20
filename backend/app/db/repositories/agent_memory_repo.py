@@ -14,7 +14,7 @@ class AgentMemoryRepository:
 
     async def save_memory(self, memory: AgentInvestigationMemory) -> Dict[str, Any]:
         """Save or update agent session memory."""
-        doc = memory.model_dump()
+        doc = memory.model_dump(exclude={"created_at"})
         doc["updated_at"] = datetime.now(timezone.utc)
 
         await self.collection.update_one(

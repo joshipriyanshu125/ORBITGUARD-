@@ -19,6 +19,30 @@ export interface SatelliteSummary {
   object_type?: 'PAYLOAD' | 'ROCKET_BODY' | 'DEBRIS' | 'UNKNOWN';
 }
 
+export interface OrbitPoint {
+  timestamp: string;
+  x_km: number;
+  y_km: number;
+  z_km: number;
+  vx_kms: number;
+  vy_kms: number;
+  vz_kms: number;
+  latitude_deg: number;
+  longitude_deg: number;
+  altitude_km: number;
+}
+
+export interface OrbitPath {
+  norad_id: number;
+  name: string;
+  epoch: string;
+  start_time: string;
+  end_time: string;
+  step_seconds: number;
+  point_count: number;
+  points: OrbitPoint[];
+}
+
 export interface SatellitePosition {
   norad_id: number;
   name: string;
@@ -41,17 +65,29 @@ export interface ConjunctionSummary {
   primary_name: string;
   secondary_norad_id: number;
   secondary_name: string;
+  secondary_type?: string;
   tca: string;
   miss_distance_km: number;
   relative_speed_kms: number;
   collision_probability?: number;
   collision_probability_sci?: string;
   risk_tier?: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NOMINAL';
+  risk_score?: number;
+  status?: string;
   nasa_cara_tier?: string;
   b_plane_xi_km?: number;
   b_plane_zeta_km?: number;
   upi_score?: number;
   created_at: string;
+}
+
+export interface ExplainabilityReport {
+  executive_summary: string;
+  geometry_explanation: string;
+  uncertainty_explanation: string;
+  probabilistic_explanation: string;
+  sensitivity_analysis: Record<string, any>;
+  hitl_recommendation: string;
 }
 
 export interface AgentProposal {
@@ -161,7 +197,7 @@ export interface HypotheticalScenarioResponse {
     status: string;
     screened_catalog_objects: number;
     secondary_encounters_detected: number;
-    cleared_safety_corridor_km: number;
+    cleared_safety_corridor_km: number | null;
     risk_assessment: string;
   };
   executive_engineering_debrief: string;
@@ -173,13 +209,19 @@ export interface SystemHealthStatus {
   version: string;
   environment: string;
   timestamp: string;
+  disclaimer?: string;
   database: {
     status: string;
-    database: string;
-    collections: Record<string, number>;
+    engine: string;
+    name: string;
+  };
+  catalog?: {
+    satellites: number;
+    conjunctions: number;
   };
   ingestion_scheduler?: {
     running: boolean;
     interval_hours: number;
+    groups: string[];
   };
 }

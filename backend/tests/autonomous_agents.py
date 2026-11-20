@@ -18,7 +18,9 @@ from app.models.maneuver import ManeuverProposalInDB, BurnDirection, ApprovalSta
 
 
 @pytest.mark.asyncio
-async def test_tool_calling_registry():
+async def test_tool_calling_registry(async_client: AsyncClient):
+    await async_client.post("/api/catalog/sync?groups=stations")
+
     # 1. Query satellite telemetry
     sat_res = await tool_registry.query_satellite_telemetry(25544)
     assert sat_res["norad_id"] == 25544
@@ -33,8 +35,7 @@ async def test_tool_calling_registry():
     risk_res = await tool_registry.assess_collision_risk(
         primary_norad_id=25544,
         secondary_norad_id=39872,
-        miss_distance_km=0.75,
-        relative_velocity_kms=14.0
+        lead_time_hours=18.0
     )
     assert "geometry" in risk_res
     assert "probabilistic" in risk_res
@@ -46,7 +47,10 @@ async def test_tool_calling_registry():
         target_norad_id=25544,
         desired_miss_km=8.0,
         current_miss_km=0.75,
-        direction=BurnDirection.RADIAL
+        burn_epoch=datetime.now(timezone.utc),
+        direction=BurnDirection.RADIAL,
+        spacecraft_mass_kg=420000.0,
+        isp_seconds=310.0
     )
     assert plan_res["approval_status"] == "PENDING"
     assert plan_res["requires_human_approval"] is True
@@ -55,13 +59,15 @@ async def test_tool_calling_registry():
 
 
 @pytest.mark.asyncio
-async def test_five_specialized_agents_execution():
+async def test_five_specialized_agents_execution(async_client: AsyncClient):
+    await async_client.post("/api/catalog/sync?groups=stations")
+
     # 1. Monitoring Agent
     mon_agent = MonitoringAgent()
     mon_out = await mon_agent.execute(norad_id=25544)
     assert mon_out["trace"].agent == "MonitoringAgent"
     assert mon_out["trace"].action == "INSPECT_TELEMETRY"
-    assert mon_out["output"]["telemetry_health"] == "NOMINAL"
+    assert mon_out["output"]["telemetry_health"] == "CATALOG_STATE_ONLY"
 
     # 2. Prediction Agent
     pred_agent = PredictionAgent()
@@ -74,12 +80,12 @@ async def test_five_specialized_agents_execution():
     col_out = await col_agent.execute(
         primary_norad_id=25544,
         secondary_norad_id=39872,
-        miss_distance_km=0.65,
-        relative_velocity_kms=13.5
+        lead_time_hours=18.0
     )
     assert col_out["trace"].agent == "CollisionAssessmentAgent"
+    assert col_out["output"]["status"] == "ASSESSED"
     assert "collision_probability_sci" in col_out["output"]
-    assert col_out["output"]["requires_maneuver_planning"] is True
+    assert isinstance(col_out["output"]["requires_maneuver_planning"], bool)
 
     # 4. Mission Planning Agent
     plan_agent = MissionPlanningAgent()
@@ -88,6 +94,7 @@ async def test_five_specialized_agents_execution():
         target_norad_id=25544,
         current_miss_km=0.65,
         desired_miss_km=10.0,
+        burn_epoch=datetime.now(timezone.utc),
         direction=BurnDirection.RADIAL
     )
     assert plan_out["trace"].agent == "MissionPlanningAgent"
@@ -135,7 +142,8 @@ def test_task_planner_decomposition():
 
 
 @pytest.mark.asyncio
-async def test_agent_orchestrator_end_to_end():
+async def test_agent_orchestrator_end_to_end(async_client: AsyncClient):
+    await async_client.post("/api/catalog/sync?groups=stations")
     sess_id = "SESS-ORCHESTRATOR-TEST"
     resp = await agent_orchestrator.run_investigation(
         query="Investigate collision hazard for ISS with Fengyun debris and plan avoidance burn",
@@ -144,16 +152,15 @@ async def test_agent_orchestrator_end_to_end():
     )
 
     assert resp.session_id == sess_id
-    assert len(resp.trace) >= 4
-    assert resp.approval_required is True
-    assert resp.pending_proposal_id is not None
+    assert len(resp.trace) >= 3
+    assert resp.approval_required == (resp.pending_proposal_id is not None)
     assert "MISSION INTELLIGENCE BRIEFING" in resp.findings_summary
 
-    # Verify persistent memory was saved
+    # Verify persistent memory was saved and mirrors the approval state
     mem = await agent_memory_repo.get_memory(sess_id)
     assert mem is not None
     assert mem["session_id"] == sess_id
-    assert mem["approval_checkpoint_reached"] is True
+    assert mem["approval_checkpoint_reached"] is resp.approval_required
 
 
 @pytest.mark.asyncio

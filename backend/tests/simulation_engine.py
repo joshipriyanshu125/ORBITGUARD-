@@ -156,6 +156,7 @@ def test_hypothetical_scenario_execution():
         primary_name="ISS (ZARYA)",
         secondary_norad_id=39872,
         secondary_name="FENGYUN 1C DEBRIS",
+        semi_major_axis_km=6800.0,
         initial_miss_distance_km=0.35,
         relative_velocity_kms=14.5,
         lead_time_hours=24.0,
@@ -170,7 +171,7 @@ def test_hypothetical_scenario_execution():
     assert res_debris.optimal_candidate.recommendation_rank == 1
     assert len(res_debris.fuel_comparison_table) == 5
     assert res_debris.trajectory_comparison.miss_distance_gain_km > 0.0
-    assert "PASSED" in res_debris.secondary_risk_check["status"]
+    assert res_debris.secondary_risk_check["status"] == "NOT_PERFORMED"
     assert "ENGINEERING DEBRIEF" in res_debris.executive_engineering_debrief
 
     # 2. Fuel constrained scenario
@@ -181,6 +182,7 @@ def test_hypothetical_scenario_execution():
         primary_name="ISS (ZARYA)",
         secondary_norad_id=41234,
         secondary_name="COSMOS 1408 DEBRIS",
+        semi_major_axis_km=6800.0,
         initial_miss_distance_km=0.40,
         relative_velocity_kms=13.0,
         lead_time_hours=18.0,
@@ -220,6 +222,7 @@ async def test_simulation_api_endpoints(async_client: AsyncClient):
             "desired_miss_distance_km": 8.0,
             "relative_velocity_kms": 14.2,
             "lead_time_hours": 24.0,
+            "semi_major_axis_km": 6800.0,
             "spacecraft_dry_mass_kg": 420000.0,
             "spacecraft_propellant_mass_kg": 2500.0,
             "thruster_isp_seconds": 310.0
@@ -240,6 +243,9 @@ async def test_simulation_api_endpoints(async_client: AsyncClient):
             "initial_miss_distance_km": 0.45,
             "semi_major_axis_km": 6800.0,
             "lead_time_hours": 24.0,
+            "spacecraft_dry_mass_kg": 420000.0,
+            "spacecraft_propellant_mass_kg": 2500.0,
+            "thruster_isp_seconds": 310.0,
             "num_steps": 12
         }
     )
@@ -258,6 +264,7 @@ async def test_simulation_api_endpoints(async_client: AsyncClient):
             "primary_name": "ISS (ZARYA)",
             "secondary_norad_id": 39872,
             "secondary_name": "FENGYUN 1C DEBRIS",
+            "semi_major_axis_km": 6800.0,
             "initial_miss_distance_km": 0.40,
             "relative_velocity_kms": 14.2,
             "lead_time_hours": 24.0,

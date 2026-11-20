@@ -15,17 +15,18 @@ class TaskPlanner:
     @staticmethod
     def generate_plan(query: str, target_norad_id: Optional[int] = None) -> TaskPlan:
         plan_id = f"PLAN-{uuid.uuid4().hex[:8].upper()}"
-        target_id = target_norad_id or 25544  # Default to ISS if unspecified
+        target_id = target_norad_id
         q_lower = query.lower()
+        target_label = f"NORAD ID {target_id}" if target_id is not None else "the selected target"
 
-        logger.info(f"TaskPlanner generating execution plan for target NORAD ID {target_id}...")
+        logger.info(f"TaskPlanner generating execution plan for target {target_label}...")
 
         steps: List[TaskStep] = [
             TaskStep(
                 step_id=1,
                 agent_name="MonitoringAgent",
                 action="INSPECT_TELEMETRY",
-                description=f"Inspect orbital elements, altitude parameters, and telemetry state for NORAD ID {target_id}."
+                description=f"Inspect orbital elements, altitude parameters, and catalog state for {target_label}."
             ),
             TaskStep(
                 step_id=2,

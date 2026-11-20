@@ -29,7 +29,7 @@ class ManeuverProposalBase(BaseModel):
     burn_epoch: datetime
     projected_miss_distance_km: float
     fuel_consumption_kg: Optional[float] = None
-    secondary_conjunction_risk: str = "NONE_DETECTED"
+    secondary_conjunction_risk: str = "NOT_ASSESSED"
     approval_status: ApprovalStatus = Field(default=ApprovalStatus.PENDING)
     reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None

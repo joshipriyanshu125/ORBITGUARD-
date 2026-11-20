@@ -257,7 +257,7 @@ async def test_collision_assessment_api_endpoints(async_client: AsyncClient):
     assert "explainability_report" in eval_data
     assert eval_data["geometry"]["miss_distance_km"] > 0.0
 
-    # 2. Ranking endpoint with benchmark events
+    # 2. Ranking endpoint returns only stored events; never a synthetic benchmark queue
     rank_resp = await async_client.post(
         "/api/collision-assessment/rank",
         json={}
@@ -265,16 +265,10 @@ async def test_collision_assessment_api_endpoints(async_client: AsyncClient):
     assert rank_resp.status_code == 200
     rank_data = rank_resp.json()
     assert rank_data["status"] == "success"
-    assert rank_data["total_events_evaluated"] >= 3
     assert len(rank_data["ranked_queue"]) == rank_data["total_events_evaluated"]
-    assert rank_data["ranked_queue"][0]["rank"] == 1
+    if rank_data["ranked_queue"]:
+        assert rank_data["ranked_queue"][0]["rank"] == 1
 
-    # 3. Explainability report endpoint
+    # 3. Unknown explainability report is a real 404, not a fabricated event
     report_resp = await async_client.get("/api/collision-assessment/report/CONJ-TEST-SAMPLE")
-    assert report_resp.status_code == 200
-    report_data = report_resp.json()
-    assert "executive_summary" in report_data
-    assert "geometry_explanation" in report_data
-    assert "uncertainty_explanation" in report_data
-    assert "sensitivity_analysis" in report_data
-    assert "hitl_recommendation" in report_data
+    assert report_resp.status_code == 404

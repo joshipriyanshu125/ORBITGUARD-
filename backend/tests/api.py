@@ -65,7 +65,21 @@ async def test_catalog_sync_and_retrieval(async_client: AsyncClient):
     assert "altitude_km" in first_pt
     assert "disclaimer" in orbit_data
 
-    # 5. Non-existent satellite returns 404
+    # 5. Batch current positions from real SGP4 propagation
+    batch_ids = [item["norad_id"] for item in list_data["items"][:3]]
+    batch_resp = await async_client.post("/api/propagation/positions", json={"norad_ids": batch_ids})
+    assert batch_resp.status_code == 200
+    batch_data = batch_resp.json()
+    assert batch_data["count"] == len(batch_data["items"]) > 0
+    assert all(
+        "lat" in item and "lon" in item and "alt_km" in item
+        for item in batch_data["items"]
+    )
+
+    empty_batch = await async_client.post("/api/propagation/positions", json={"norad_ids": []})
+    assert empty_batch.status_code == 422
+
+    # 6. Non-existent satellite returns 404
     not_found_resp = await async_client.get("/api/satellites/9999999")
     assert not_found_resp.status_code == 404
 

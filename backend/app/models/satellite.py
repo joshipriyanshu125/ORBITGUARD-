@@ -34,6 +34,7 @@ class OrbitPoint(BaseModel):
 class SatelliteBase(BaseModel):
     norad_id: int = Field(..., description="NORAD Catalog Number")
     name: str = Field(..., description="Common Satellite / Debris Name")
+    intl_designator: Optional[str] = Field(default=None, description="International/COSPAR designator")
     object_type: ObjectType = Field(default=ObjectType.UNKNOWN)
     tle_line1: str
     tle_line2: str

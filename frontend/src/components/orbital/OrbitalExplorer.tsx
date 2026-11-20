@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import {
@@ -6,14 +6,10 @@ import {
   RotateCcw,
   Play,
   Pause,
-  Filter,
-  Eye,
   Crosshair,
   Satellite as SatelliteIcon,
-  Layers,
-  Sparkles,
-  Info,
-  X
+  X,
+  Database
 } from 'lucide-react';
 import type { SatelliteSummary } from '../../types';
 import { apiService } from '../../services/api';
@@ -24,25 +20,50 @@ interface OrbitalExplorerProps {
   onSelectSatellite: (sat: SatelliteSummary | null) => void;
 }
 
+interface LivePosition {
+  norad_id: number;
+  name: string;
+  object_type: string;
+  lat: number;
+  lon: number;
+  alt_km: number;
+}
+
 export const OrbitalExplorer: React.FC<OrbitalExplorerProps> = ({
   satellites,
   selectedSatellite,
   onSelectSatellite
 }) => {
-  const cesiumContainerRef = useRef<HTMLDivElement>(null);
+  const cesiumContainerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
   const orbitEntityRef = useRef<Cesium.Entity | null>(null);
   const satelliteEntitiesRef = useRef<Map<number, Cesium.Entity>>(new Map());
+  const satellitesRef = useRef<SatelliteSummary[]>(satellites);
+
+  useEffect(() => {
+    satellitesRef.current = satellites;
+  }, [satellites]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRotating, setIsRotating] = useState(true);
+  const [rotationSpeed] = useState(0.04);
   const [showDebris, setShowDebris] = useState(true);
   const [showActiveSats, setShowActiveSats] = useState(true);
   const [showOrbitPaths, setShowOrbitPaths] = useState(true);
-  const [currentSatPosition, setCurrentSatPosition] = useState<any | null>(null);
+  const [altitudeRegime, setAltitudeRegime] = useState<'ALL' | 'LEO' | 'MEO' | 'GEO'>('ALL');
+  const [positions, setPositions] = useState<Map<number, LivePosition>>(new Map());
+  const [positionsEpoch, setPositionsEpoch] = useState<string | null>(null);
+  const [currentPosition, setCurrentPosition] = useState<LivePosition | null>(null);
   const [isLoadingOrbit, setIsLoadingOrbit] = useState(false);
+  const [orbitError, setOrbitError] = useState<string | null>(null);
 
-  // Initialize Cesium Viewer
+  useEffect(() => {
+    if (!selectedSatellite && satellites.length > 0) {
+      onSelectSatellite(satellites[0]);
+    }
+  }, [selectedSatellite, satellites, onSelectSatellite]);
+
+  // Initialize the Cesium viewer once.
   useEffect(() => {
     if (!cesiumContainerRef.current) return;
 
@@ -62,232 +83,254 @@ export const OrbitalExplorer: React.FC<OrbitalExplorerProps> = ({
       selectionIndicator: false,
       navigationHelpButton: false,
       baseLayerPicker: false,
-      skyAtmosphere: new Cesium.SkyAtmosphere(),
-      skyBox: new Cesium.SkyBox({
-        sources: {
-          positiveX: 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_px.jpg',
-          negativeX: 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mx.jpg',
-          positiveY: 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_py.jpg',
-          negativeY: 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_my.jpg',
-          positiveZ: 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_pz.jpg',
-          negativeZ: 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mz.jpg'
-        }
-      })
+      skyAtmosphere: new Cesium.SkyAtmosphere()
     });
 
     viewer.scene.globe.enableLighting = true;
     viewer.scene.globe.depthTestAgainstTerrain = false;
-
-    // Set initial camera view to see Earth from high orbital altitude
     viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(20.0, 15.0, 22000000.0)
+      destination: Cesium.Cartesian3.fromDegrees(78.0, 18.0, 24000000.0)
     });
+
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction((movement: any) => {
+      const pickedObject = viewer.scene.pick(movement.position);
+      if (
+        Cesium.defined(pickedObject) &&
+        pickedObject.id &&
+        typeof pickedObject.id.id === 'string' &&
+        pickedObject.id.id.startsWith('sat-')
+      ) {
+        const noradId = parseInt(pickedObject.id.id.replace('sat-', ''), 10);
+        const sat = satellitesRef.current.find((s) => s.norad_id === noradId);
+        if (sat) onSelectSatellite(sat);
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     viewerRef.current = viewer;
 
     return () => {
-      if (!viewer.isDestroyed()) {
-        viewer.destroy();
-      }
+      handler.destroy();
+      if (!viewer.isDestroyed()) viewer.destroy();
       viewerRef.current = null;
     };
   }, []);
 
-  // Globe slow rotation effect
+  // Slow camera rotation control.
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
-
     let previousTime = Date.now();
     const rotate = () => {
-      if (isRotating && viewer && !viewer.isDestroyed() && !selectedSatellite) {
+      if (isRotating && viewer && !viewer.isDestroyed()) {
         const now = Date.now();
         const delta = (now - previousTime) / 1000;
         previousTime = now;
-        viewer.scene.camera.rotate(Cesium.Cartesian3.UNIT_Z, delta * 0.04);
+        viewer.scene.camera.rotate(Cesium.Cartesian3.UNIT_Z, delta * rotationSpeed);
       } else {
         previousTime = Date.now();
       }
     };
-
     viewer.clock.onTick.addEventListener(rotate);
     return () => {
-      if (viewer && !viewer.isDestroyed()) {
-        viewer.clock.onTick.removeEventListener(rotate);
+      if (viewer && !viewer.isDestroyed()) viewer.clock.onTick.removeEventListener(rotate);
+    };
+  }, [isRotating, rotationSpeed]);
+
+  // Live SGP4 positions for the catalog (batch endpoint, refreshed every 60s).
+  useEffect(() => {
+    if (satellites.length === 0) {
+      setPositions(new Map());
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await apiService.getCatalogPositions(satellites.slice(0, 500).map((s) => s.norad_id));
+        if (cancelled) return;
+        const map = new Map<number, LivePosition>();
+        data.items.forEach((item) => map.set(item.norad_id, item));
+        setPositions(map);
+        setPositionsEpoch(data.timestamp);
+      } catch {
+        if (!cancelled) setPositionsEpoch(null);
       }
     };
-  }, [isRotating, selectedSatellite]);
+    load();
+    const interval = setInterval(load, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [satellites]);
 
-  // Render satellites as 3D point markers
+  // Render catalog points from live propagated states.
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer || viewer.isDestroyed() || satellites.length === 0) return;
+    if (!viewer || viewer.isDestroyed()) return;
 
-    // Clear old entities
     satelliteEntitiesRef.current.forEach((entity) => viewer.entities.remove(entity));
     satelliteEntitiesRef.current.clear();
 
     const entitiesMap = new Map<number, Cesium.Entity>();
+    satellites.forEach((sat) => {
+      const live = positions.get(sat.norad_id);
+      if (!live) return;
 
-    satellites.slice(0, 450).forEach((sat) => {
-      const isDebris = (sat.name.includes('DEB') || sat.name.includes('R/B') || sat.object_type === 'DEBRIS');
+      const isDebris = sat.object_type === 'DEBRIS' || sat.object_type === 'ROCKET_BODY';
       if (isDebris && !showDebris) return;
       if (!isDebris && !showActiveSats) return;
 
-      const inc = sat.inclination_deg || 51.6;
-      const raan = sat.raan_deg || 0.0;
-      const meanMo = sat.mean_motion_rev_day || 15.5;
-      const altKm = sat.perigee_km || 420.0;
+      const alt = live.alt_km;
+      if (altitudeRegime === 'LEO' && alt > 2000) return;
+      if (altitudeRegime === 'MEO' && (alt < 2000 || alt > 35000)) return;
+      if (altitudeRegime === 'GEO' && alt < 35000) return;
 
-      // Approximate current position on orbital sphere
-      const lon = ((raan + (sat.norad_id % 360) * 1.5) % 360) - 180;
-      const lat = Math.sin((sat.norad_id * 17) % 360 * (Math.PI / 180)) * inc;
-      const altMeters = altKm * 1000.0;
+      const isSelected = selectedSatellite?.norad_id === sat.norad_id;
+      let pointColor = isDebris
+        ? Cesium.Color.fromCssColorString('#f87171').withAlpha(0.65)
+        : Cesium.Color.fromCssColorString('#22c55e');
+      let pixelSize = isDebris ? 2.5 : 3.5;
 
-      let pointColor = Cesium.Color.CYAN;
-      let pixelSize = 4;
-
-      if (sat.norad_id === 25544) {
-        // Space Station
-        pointColor = Cesium.Color.YELLOW;
-        pixelSize = 9;
-      } else if (isDebris) {
-        pointColor = Cesium.Color.CORAL.withAlpha(0.7);
-        pixelSize = 3;
-      } else {
-        pointColor = Cesium.Color.fromCssColorString('#00ffcc').withAlpha(0.85);
-        pixelSize = 4;
+      if (isSelected) {
+        pointColor = Cesium.Color.fromCssColorString('#fbbf24');
+        pixelSize = 8.0;
       }
 
       const entity = viewer.entities.add({
         id: `sat-${sat.norad_id}`,
         name: sat.name,
-        position: Cesium.Cartesian3.fromDegrees(lon, lat, altMeters),
+        position: Cesium.Cartesian3.fromDegrees(live.lon, live.lat, live.alt_km * 1000),
         point: {
-          pixelSize: pixelSize,
+          pixelSize,
           color: pointColor,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 1,
-          scaleByDistance: new Cesium.NearFarScalar(1.5e6, 2.0, 4.0e7, 0.6)
+          outlineColor: isSelected ? Cesium.Color.WHITE : Cesium.Color.BLACK,
+          outlineWidth: isSelected ? 2 : 1,
+          scaleByDistance: new Cesium.NearFarScalar(1.5e6, 2.0, 4.5e7, 0.5)
         }
       });
-
       entitiesMap.set(sat.norad_id, entity);
     });
 
     satelliteEntitiesRef.current = entitiesMap;
-  }, [satellites, showDebris, showActiveSats]);
+  }, [satellites, positions, showDebris, showActiveSats, altitudeRegime, selectedSatellite]);
 
-  // Propagate orbit path and fly to selected satellite
+  // Real SGP4 orbit path for the selected object.
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer || viewer.isDestroyed() || !selectedSatellite) return;
+    if (!viewer || viewer.isDestroyed()) return;
 
-    setIsLoadingOrbit(true);
-
-    // Remove existing orbit polyline
     if (orbitEntityRef.current) {
       viewer.entities.remove(orbitEntityRef.current);
       orbitEntityRef.current = null;
     }
+    setOrbitError(null);
+    setCurrentPosition(null);
+    if (!selectedSatellite) return;
 
-    const noradId = selectedSatellite.norad_id;
+    const live = positions.get(selectedSatellite.norad_id) ?? null;
+    setCurrentPosition(live);
+    if (!showOrbitPaths) return;
 
-    // Fetch accurate SGP4 propagated orbit path from backend
+    let cancelled = false;
+    setIsLoadingOrbit(true);
     apiService
-      .getSatelliteOrbitPath(noradId, 1.6, 2)
+      .getSatelliteOrbitPath(selectedSatellite.norad_id, 24, 120)
       .then((data) => {
-        if (!viewer || viewer.isDestroyed()) return;
-
-        const points = data.points || [];
-        if (points.length > 0) {
-          const positions: Cesium.Cartesian3[] = [];
-          points.forEach((pt: any) => {
-            const lon = pt.longitude_deg !== undefined ? pt.longitude_deg : pt.lon;
-            const lat = pt.latitude_deg !== undefined ? pt.latitude_deg : pt.lat;
-            const alt = (pt.altitude_km !== undefined ? pt.altitude_km : pt.alt_km) * 1000;
-            positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, alt));
-          });
-
-          // Draw the orbit polyline
-          if (showOrbitPaths && positions.length > 2) {
-            const orbitEntity = viewer.entities.add({
-              name: `${selectedSatellite.name} Orbit Path`,
-              polyline: {
-                positions: positions,
-                width: 2.5,
-                material: new Cesium.PolylineGlowMaterialProperty({
-                  glowPower: 0.25,
-                  color: selectedSatellite.norad_id === 25544 ? Cesium.Color.GOLD : Cesium.Color.CYAN
-                })
-              }
-            });
-            orbitEntityRef.current = orbitEntity;
-          }
-
-          // Center on first or current point
-          const currentPt = points[0];
-          const cLon = currentPt.longitude_deg !== undefined ? currentPt.longitude_deg : currentPt.lon;
-          const cLat = currentPt.latitude_deg !== undefined ? currentPt.latitude_deg : currentPt.lat;
-          const cAlt = currentPt.altitude_km !== undefined ? currentPt.altitude_km : currentPt.alt_km;
-          setCurrentSatPosition({ lon: cLon, lat: cLat, alt_km: cAlt });
-
-          viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(
-              cLon,
-              cLat,
-              (cAlt + 4500) * 1000
-            ),
-            duration: 2.2
+        if (cancelled || !viewer || viewer.isDestroyed() || !data.points?.length) return;
+        const points = data.points
+          .filter((pt: any) => pt.latitude_deg !== undefined && pt.longitude_deg !== undefined)
+          .map((pt: any) => Cesium.Cartesian3.fromDegrees(pt.longitude_deg, pt.latitude_deg, Math.max(pt.altitude_km * 1000, 150000)));
+        if (points.length > 2) {
+          orbitEntityRef.current = viewer.entities.add({
+            name: `${selectedSatellite.name} SGP4 trajectory`,
+            polyline: {
+              positions: points,
+              width: 2.5,
+              material: new Cesium.PolylineGlowMaterialProperty({
+                glowPower: 0.15,
+                color: Cesium.Color.fromCssColorString('#ef4444')
+              })
+            }
           });
         }
       })
-      .catch((err) => {
-        console.error('Failed to propagate orbit path:', err);
+      .catch(() => {
+        if (!cancelled) setOrbitError('SGP4 orbit propagation is unavailable for this object.');
       })
       .finally(() => {
-        setIsLoadingOrbit(false);
+        if (!cancelled) setIsLoadingOrbit(false);
       });
-  }, [selectedSatellite, showOrbitPaths]);
 
-  // Filtered satellite search
-  const filteredSatellites = satellites.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.norad_id.toString().includes(searchQuery)
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSatellite, showOrbitPaths, positions]);
+
+  const flyToNorad = useCallback(async (noradId: number) => {
+    const viewer = viewerRef.current;
+    if (!viewer || viewer.isDestroyed()) return;
+    let live = positions.get(noradId);
+    if (!live) {
+      try {
+        live = await apiService.getSatelliteCurrentPosition(noradId);
+      } catch {
+        return;
+      }
+    }
+    if (!live) return;
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(live.lon, live.lat, (live.alt_km + 4200) * 1000),
+      duration: 1.8
+    });
+  }, [positions]);
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return satellites
+      .filter((s) => s.name.toLowerCase().includes(q) || s.norad_id.toString().includes(q))
+      .slice(0, 8);
+  }, [searchQuery, satellites]);
 
   return (
-    <div className="relative w-full h-[calc(100vh-8rem)] rounded-2xl overflow-hidden border border-slate-800 bg-[#040711] shadow-2xl">
-      {/* 3D Cesium Container */}
+    <div className="relative w-full h-[calc(100vh-7.5rem)] rounded-2xl overflow-hidden border border-slate-800 bg-[#060a14] shadow-2xl select-none font-sans">
       <div ref={cesiumContainerRef} className="w-full h-full" />
 
-      {/* Top Left Floating Search & Filter Bar */}
-      <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2">
-        {/* Search Input */}
+      {satellites.length === 0 && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center text-center space-y-3 bg-[#060a14]">
+          <Database className="w-10 h-10 text-slate-600" />
+          <h2 className="text-lg font-bold text-slate-200">No catalog objects to display</h2>
+          <p className="text-sm text-slate-400 max-w-md">
+            Synchronize the catalog on Mission Control to populate the 3D orbital view with live CelesTrak objects.
+          </p>
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2 font-mono text-xs">
         <div className="relative w-72">
-          <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-2.5" />
+          <Search className="w-4 h-4 text-sky-400 absolute left-3 top-2.5" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search satellite or NORAD ID..."
-            className="w-full pl-9 pr-4 py-2 rounded-xl bg-[#090f1e]/90 backdrop-blur-md border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono shadow-xl"
+            placeholder="Search catalog name or NORAD..."
+            className="w-full pl-9 pr-4 py-2 rounded-xl bg-[#091022]/90 backdrop-blur-md border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 shadow-xl"
           />
-
-          {/* Autocomplete Dropdown */}
-          {searchQuery.trim().length > 1 && (
-            <div className="absolute left-0 right-0 mt-1.5 max-h-56 overflow-y-auto rounded-xl bg-[#0b1326] border border-slate-800 shadow-2xl divide-y divide-slate-800/60 z-30 font-mono text-xs">
-              {filteredSatellites.slice(0, 8).map((sat) => (
+          {searchResults.length > 0 && (
+            <div className="absolute left-0 right-0 mt-1.5 max-h-60 overflow-y-auto rounded-xl bg-[#091022] border border-slate-800 shadow-2xl divide-y divide-slate-800/60 z-30">
+              {searchResults.map((sat) => (
                 <button
                   key={sat.norad_id}
                   onClick={() => {
                     onSelectSatellite(sat);
+                    flyToNorad(sat.norad_id);
                     setSearchQuery('');
                   }}
-                  className="w-full px-3 py-2 text-left hover:bg-cyan-950/60 flex items-center justify-between text-slate-300 transition-colors"
+                  className="w-full px-3 py-2 text-left hover:bg-sky-950/60 flex items-center justify-between text-slate-300 transition-colors"
                 >
-                  <span className="font-semibold text-cyan-300 truncate">{sat.name}</span>
+                  <span className="font-semibold text-sky-300 truncate">{sat.name}</span>
                   <span className="text-[10px] text-slate-500 shrink-0">#{sat.norad_id}</span>
                 </button>
               ))}
@@ -295,180 +338,134 @@ export const OrbitalExplorer: React.FC<OrbitalExplorerProps> = ({
           )}
         </div>
 
-        {/* Rotation Toggle Button */}
         <button
           onClick={() => setIsRotating(!isRotating)}
-          className={`p-2 rounded-xl backdrop-blur-md border text-xs font-semibold flex items-center gap-1.5 shadow-xl transition-colors ${
+          className={`p-2 rounded-xl backdrop-blur-md border shadow-xl transition-colors ${
             isRotating
-              ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
-              : 'bg-[#090f1e]/90 border-slate-800 text-slate-400 hover:text-slate-200'
+              ? 'bg-sky-950/80 border-sky-500/50 text-sky-300'
+              : 'bg-[#091022]/90 border-slate-800 text-slate-400 hover:text-slate-200'
           }`}
-          title={isRotating ? 'Pause Globe Rotation' : 'Resume Globe Rotation'}
+          title={isRotating ? 'Pause camera rotation' : 'Resume camera rotation'}
         >
           {isRotating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
         </button>
 
-        {/* Reset Camera View */}
         <button
-          onClick={() => {
-            if (viewerRef.current) {
-              viewerRef.current.camera.flyTo({
-                destination: Cesium.Cartesian3.fromDegrees(20.0, 15.0, 22000000.0),
-                duration: 1.8
-              });
-            }
-          }}
-          className="p-2 rounded-xl bg-[#090f1e]/90 backdrop-blur-md border border-slate-800 text-slate-400 hover:text-cyan-300 shadow-xl transition-colors"
-          title="Reset Global View"
+          onClick={() => viewerRef.current?.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(78.0, 18.0, 24000000.0),
+            duration: 1.5
+          })}
+          className="p-2 rounded-xl bg-[#091022]/90 backdrop-blur-md border border-slate-800 text-slate-400 hover:text-sky-300 shadow-xl transition-colors"
+          title="Reset global view"
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
 
-        {/* Layer Filters */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#090f1e]/90 backdrop-blur-md border border-slate-800 text-xs shadow-xl font-mono">
-          <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 text-[11px]">
-            <input
-              type="checkbox"
-              checked={showActiveSats}
-              onChange={(e) => setShowActiveSats(e.target.checked)}
-              className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0"
-            />
-            <span className="text-cyan-400 font-bold">Active</span>
+        {selectedSatellite && (
+          <button
+            onClick={() => flyToNorad(selectedSatellite.norad_id)}
+            className="px-2.5 py-1.5 rounded-xl bg-[#091022]/90 backdrop-blur-md border border-slate-800 text-sky-400 hover:border-sky-500 flex items-center gap-1.5 shadow-xl transition-colors"
+            title="Focus camera on selected object"
+          >
+            <Crosshair className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[11px] font-bold">Track Object</span>
+          </button>
+        )}
+
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#091022]/90 backdrop-blur-md border border-slate-800 shadow-xl text-[11px]">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={showActiveSats} onChange={(e) => setShowActiveSats(e.target.checked)} className="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0" />
+            <span className="text-emerald-400 font-bold">Payloads</span>
           </label>
           <span className="text-slate-700">|</span>
-          <label className="flex items-center gap-1.5 cursor-pointer text-slate-300 text-[11px]">
-            <input
-              type="checkbox"
-              checked={showDebris}
-              onChange={(e) => setShowDebris(e.target.checked)}
-              className="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0"
-            />
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={showDebris} onChange={(e) => setShowDebris(e.target.checked)} className="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0" />
             <span className="text-rose-400 font-bold">Debris</span>
           </label>
+          <span className="text-slate-700">|</span>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={showOrbitPaths} onChange={(e) => setShowOrbitPaths(e.target.checked)} className="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-0" />
+            <span className="text-sky-400 font-bold">Orbit Line</span>
+          </label>
+        </div>
+
+        <div className="flex items-center bg-[#091022]/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 shadow-xl">
+          {(['ALL', 'LEO', 'MEO', 'GEO'] as const).map((regime) => (
+            <button
+              key={regime}
+              onClick={() => setAltitudeRegime(regime)}
+              className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-colors ${
+                altitudeRegime === regime ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {regime}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Floating Satellite Details Overlay on Right (Matching Image 2) */}
+      {/* Selected object inspection card */}
       {selectedSatellite && (
-        <div className="absolute top-4 right-4 z-20 w-84 rounded-2xl bg-[#070e1c]/95 backdrop-blur-xl border border-cyan-500/40 p-5 shadow-2xl space-y-4 font-mono text-xs animate-in fade-in slide-in-from-right-4">
-          {/* Card Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-            <div className="flex items-center gap-2">
-              <SatelliteIcon className="w-4 h-4 text-cyan-400" />
-              <div>
-                <h3 className="font-bold text-slate-100 text-sm tracking-wide">
-                  {selectedSatellite.name}
-                </h3>
-                <span className="text-[10px] text-cyan-400 font-mono">
-                  NORAD: {selectedSatellite.norad_id}
-                </span>
-              </div>
+        <div className="absolute top-4 right-4 z-20 w-80 rounded-xl bg-[#091329]/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl overflow-hidden font-mono text-xs">
+          <div className="bg-[#172554] border-b border-blue-900/80 px-3.5 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 inline-block shrink-0" />
+              <h3 className="font-bold text-sky-200 text-sm tracking-wide truncate">{selectedSatellite.name}</h3>
             </div>
             <button
               onClick={() => onSelectSatellite(null)}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="p-1 rounded text-sky-300 hover:text-white hover:bg-blue-800/60 transition-colors"
+              title="Close panel"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Quick Actions List (Matching Image 2) */}
-          <div className="space-y-1.5 text-[11px] text-cyan-400">
-            <button className="w-full text-left py-1 hover:text-cyan-200 flex items-center justify-between">
-              <span>Find all objects from this launch</span>
-              <span>→</span>
-            </button>
-            <button className="w-full text-left py-1 hover:text-cyan-200 flex items-center justify-between">
-              <span>Find all objects within 100km</span>
-              <span>→</span>
-            </button>
-            <button className="w-full text-left py-1 hover:text-cyan-200 flex items-center justify-between">
-              <span>Generate Orbit Reference Satellite</span>
-              <span>→</span>
-            </button>
-          </div>
-
-          {/* Orbital Identifiers Table */}
-          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              Identifiers
-            </span>
-            <div className="flex justify-between">
-              <span className="text-slate-500">COSPAR ID:</span>
-              <span className="text-slate-200">{selectedSatellite.intl_designator || '1998-067A'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Alt Name:</span>
-              <span className="text-slate-200">{selectedSatellite.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Confidence:</span>
-              <span className="text-emerald-400 font-bold">High (SGP4 Valid)</span>
-            </div>
-          </div>
-
-          {/* Orbital Physical Parameters Table */}
-          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-              Orbit Ephemeris
-            </span>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Perigee:</span>
-              <span className="text-slate-200 font-bold">
-                {selectedSatellite.perigee_km ? `${Math.round(selectedSatellite.perigee_km)} km` : '418 km'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Apogee:</span>
-              <span className="text-slate-200 font-bold">
-                {selectedSatellite.apogee_km ? `${Math.round(selectedSatellite.apogee_km)} km` : '424 km'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Inclination:</span>
-              <span className="text-cyan-400 font-bold">
-                {selectedSatellite.inclination_deg ? `${selectedSatellite.inclination_deg.toFixed(2)}°` : '51.64°'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Eccentricity:</span>
-              <span className="text-slate-200">
-                {selectedSatellite.eccentricity ? selectedSatellite.eccentricity.toFixed(5) : '0.00062'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Period:</span>
-              <span className="text-slate-200">
-                {selectedSatellite.period_minutes ? `${selectedSatellite.period_minutes.toFixed(1)} min` : '92.8 min'}
-              </span>
-            </div>
-          </div>
-
-          {/* Current Realtime Position if available */}
-          {currentSatPosition && (
-            <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-800/50 space-y-1 text-cyan-300 text-[11px]">
-              <div className="flex justify-between">
-                <span>Sub-Satellite Lat:</span>
-                <span className="font-bold">{currentSatPosition.lat.toFixed(3)}°</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Sub-Satellite Lon:</span>
-                <span className="font-bold">{currentSatPosition.lon.toFixed(3)}°</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Current Altitude:</span>
-                <span className="font-bold">{currentSatPosition.alt_km.toFixed(1)} km</span>
+          <div className="p-3.5 space-y-3">
+            <div>
+              <div className="text-center font-bold text-sky-400 text-xs py-1 mb-1 border-b border-slate-800">Identifiers</div>
+              <div className="space-y-1 text-[11px]">
+                <div className="flex justify-between"><span className="text-slate-400">COSPAR:</span><span className="text-slate-200">{selectedSatellite.intl_designator ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">NORAD:</span><span className="text-slate-200 font-bold">{selectedSatellite.norad_id}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Type:</span><span className="text-slate-200">{selectedSatellite.object_type ?? 'UNKNOWN'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Source:</span><span className="text-slate-200">CelesTrak TLE</span></div>
               </div>
             </div>
-          )}
 
-          {isLoadingOrbit && (
-            <div className="text-center py-2 text-cyan-400 text-[11px] animate-pulse">
-              Computing SGP4 orbit trajectory...
+            <div>
+              <div className="text-center font-bold text-sky-400 text-xs py-1 mb-1 border-b border-slate-800">Orbit Data</div>
+              <div className="space-y-1 text-[11px]">
+                <div className="flex justify-between"><span className="text-slate-400">Apogee:</span><span className="text-slate-100 font-semibold">{selectedSatellite.apogee_km != null ? `${Math.round(selectedSatellite.apogee_km).toLocaleString()} km` : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Perigee:</span><span className="text-slate-100 font-semibold">{selectedSatellite.perigee_km != null ? `${Math.round(selectedSatellite.perigee_km).toLocaleString()} km` : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Inclination:</span><span className="text-sky-300 font-semibold">{selectedSatellite.inclination_deg != null ? `${selectedSatellite.inclination_deg.toFixed(2)}°` : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Eccentricity:</span><span className="text-slate-200">{selectedSatellite.eccentricity != null ? selectedSatellite.eccentricity.toFixed(5) : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Period:</span><span className="text-slate-200">{selectedSatellite.period_minutes != null ? `${selectedSatellite.period_minutes.toFixed(1)} min` : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Semi-Major Axis:</span><span className="text-slate-200">{selectedSatellite.semi_major_axis_km != null ? `${Math.round(selectedSatellite.semi_major_axis_km).toLocaleString()} km` : '—'}</span></div>
+              </div>
             </div>
-          )}
+
+            <div className="p-2.5 rounded-lg bg-[#060c1c] border border-sky-900/60 space-y-1 text-[10px] text-sky-300">
+              <div className="flex justify-between"><span className="text-slate-400">Sub-Sat Lat/Lon:</span><span className="font-bold">{currentPosition ? `${currentPosition.lat.toFixed(2)}°, ${currentPosition.lon.toFixed(2)}°` : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Altitude:</span><span className="font-bold text-slate-200">{currentPosition ? `${currentPosition.alt_km.toFixed(1)} km` : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">State Epoch:</span><span className="font-bold text-slate-200">{positionsEpoch ? positionsEpoch.slice(11, 19) + ' UTC' : '—'}</span></div>
+            </div>
+
+            {isLoadingOrbit && <div className="text-center py-1 text-sky-400 text-[10px] animate-pulse">SGP4 ephemeris syncing…</div>}
+            {orbitError && <div className="text-center py-1 text-rose-400 text-[10px]">{orbitError}</div>}
+          </div>
         </div>
       )}
+
+      {/* Attribution / live state */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#091329]/90 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-slate-400 shadow-xl">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        <span>
+          CelesTrak TLE &bull; SGP4 propagation &bull;{' '}
+          <span className="text-sky-300 font-bold">
+            {positions.size} live states
+          </span>
+        </span>
+      </div>
     </div>
   );
 };

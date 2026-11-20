@@ -22,12 +22,10 @@ class ToolRegistry:
         """Tool 1 – Inspect satellite state, TLE elements, and physical metadata from catalog."""
         sat = await satellite_repo.get_by_norad_id(norad_id)
         if not sat:
-            # Fallback for benchmark tests if offline
             return {
                 "found": False,
                 "norad_id": norad_id,
-                "name": f"SAT-{norad_id}",
-                "message": f"Satellite {norad_id} not found in live catalog. Using default LEO ephemeris."
+                "message": f"Satellite {norad_id} is not in the catalog."
             }
         return {
             "found": True,
@@ -38,7 +36,7 @@ class ToolRegistry:
             "perigee_km": sat.get("perigee_km"),
             "apogee_km": sat.get("apogee_km"),
             "inclination_deg": sat.get("inclination_deg"),
-            "bstar": sat.get("bstar", 0.0001),
+            "bstar": sat.get("bstar"),
             "tle_line1": sat.get("tle_line1"),
             "tle_line2": sat.get("tle_line2")
         }
@@ -52,13 +50,13 @@ class ToolRegistry:
         """Tool 2 – Propagate 3D orbital trajectory forward in time using SGP4 analytical propagator."""
         sat = await satellite_repo.get_by_norad_id(norad_id)
         if not sat:
-            # Use ISS baseline if satellite not found
-            sat = {
+            return {
                 "norad_id": norad_id,
-                "name": f"SAT-{norad_id}",
-                "tle_line1": "1 25544U 98067A   24125.51231481  .00016717  00000+0  30000-3 0  9993",
-                "tle_line2": "2 25544  51.6415 162.1524 0004521  45.1234 315.0123 15.49812345451231",
-                "epoch": datetime.now(timezone.utc)
+                "points_count": 0,
+                "duration_hours": duration_hours,
+                "start_time": None,
+                "end_time": None,
+                "message": f"Satellite {norad_id} is not in the catalog."
             }
 
         res = sgp4_engine.propagate_orbit_path(
@@ -123,33 +121,57 @@ class ToolRegistry:
     async def assess_collision_risk(
         primary_norad_id: int,
         secondary_norad_id: int,
-        miss_distance_km: float = 1.42,
-        relative_velocity_kms: float = 13.5,
-        lead_time_hours: float = 18.0,
+        tca: Optional[datetime] = None,
+        lead_time_hours: Optional[float] = None,
         hard_body_radius_m: float = 15.0
     ) -> Dict[str, Any]:
         """Tool 4 – Probabilistic collision risk assessment (Foster 2D Pc, NASA CARA tier, Monte Carlo)."""
-        r1 = np.array([6800.0, 0.0, 0.0])
-        v1 = np.array([0.0, 7.6, 0.0])
-        r2 = np.array([6800.0 + miss_distance_km * 0.4, miss_distance_km * 0.8, miss_distance_km * 0.45])
-        v2 = np.array([0.0, 7.6 - relative_velocity_kms, 0.0])
+        primary = await satellite_repo.get_by_norad_id(primary_norad_id)
+        secondary = await satellite_repo.get_by_norad_id(secondary_norad_id)
+        if not primary or not secondary:
+            missing = primary_norad_id if not primary else secondary_norad_id
+            return {"status": "not_found", "message": f"Satellite {missing} is not in the catalog."}
 
-        event_id = f"CONJ-{primary_norad_id}-{secondary_norad_id}-{int(datetime.now(timezone.utc).timestamp())}"
+        if tca is None:
+            tca = datetime.now(timezone.utc) + timedelta(hours=lead_time_hours if lead_time_hours is not None else 24.0)
+        if tca.tzinfo is None:
+            tca = tca.replace(tzinfo=timezone.utc)
+        lead_hours = max(0.1, (tca - datetime.now(timezone.utc)).total_seconds() / 3600.0)
 
+        try:
+            p_state = sgp4_engine.propagate_single(
+                sgp4_engine.build_satrec(primary["tle_line1"], primary["tle_line2"]), tca
+            )
+            s_state = sgp4_engine.propagate_single(
+                sgp4_engine.build_satrec(secondary["tle_line1"], secondary["tle_line2"]), tca
+            )
+        except Exception as exc:
+            return {"status": "propagation_failed", "message": str(exc)}
+        if p_state is None or s_state is None:
+            return {"status": "propagation_failed", "message": "SGP4 propagation returned no state at TCA."}
+
+        r1 = np.array([p_state.x_km, p_state.y_km, p_state.z_km])
+        v1 = np.array([p_state.vx_kms, p_state.vy_kms, p_state.vz_kms])
+        r2 = np.array([s_state.x_km, s_state.y_km, s_state.z_km])
+        v2 = np.array([s_state.vx_kms, s_state.vy_kms, s_state.vz_kms])
+
+        event_id = f"CONJ-{primary_norad_id}-{secondary_norad_id}-{int(tca.timestamp())}"
         assessment = collision_assessment_engine.assess_collision(
             event_id=event_id,
             primary_norad_id=primary_norad_id,
-            primary_name=f"SAT-{primary_norad_id}",
+            primary_name=primary.get("name") or f"NORAD {primary_norad_id}",
             secondary_norad_id=secondary_norad_id,
-            secondary_name=f"OBJ-{secondary_norad_id}",
-            secondary_type="DEBRIS",
+            secondary_name=secondary.get("name") or f"NORAD {secondary_norad_id}",
+            secondary_type=str(secondary.get("object_type") or "UNKNOWN"),
             r1_eci=r1,
             v1_eci=v1,
             r2_eci=r2,
             v2_eci=v2,
-            tca=datetime.now(timezone.utc) + timedelta(hours=lead_time_hours),
-            lead_time_hours=lead_time_hours,
-            hard_body_radius_m=hard_body_radius_m
+            tca=tca,
+            lead_time_hours=lead_hours,
+            hard_body_radius_m=hard_body_radius_m,
+            bstar_primary=float(primary.get("bstar") or 0.0),
+            bstar_secondary=float(secondary.get("bstar") or 0.0)
         )
         return assessment.model_dump()
 
@@ -157,28 +179,29 @@ class ToolRegistry:
     async def plan_avoidance_maneuver(
         conjunction_id: str,
         target_norad_id: int,
-        desired_miss_km: float = 10.0,
-        current_miss_km: float = 0.8,
+        current_miss_km: float,
+        desired_miss_km: float,
+        burn_epoch: datetime,
         direction: BurnDirection = BurnDirection.RADIAL,
-        spacecraft_mass_kg: float = 450000.0,  # e.g. ISS ~450 tons
-        isp_seconds: float = 300.0
+        spacecraft_mass_kg: Optional[float] = None,
+        isp_seconds: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Tool 5 – Plan collision avoidance maneuver (CAM).
-        Calculates delta-V, fuel mass consumption, projected separation,
-        and creates a PENDING maneuver proposal requiring Human-In-The-Loop approval.
+        Calculates delta-V, and fuel mass consumption when spacecraft mass and Isp
+        are supplied, then creates a PENDING proposal requiring HITL approval.
         """
         # Delta-V required to achieve desired miss distance
         # For radial burn: delta_v ~ (delta_r / (3 * semi_major_axis / mean_motion)) or empirical ~0.4 m/s per km separation
         miss_delta = max(1.0, desired_miss_km - current_miss_km)
         proposed_dv = round(min(5.0, max(0.25, miss_delta * 0.35)), 2)
 
-        # Tsiolkovsky rocket equation for fuel mass: delta_m = m * (1 - exp(-dv / (Isp * g0)))
-        g0 = 9.80665
-        ve = isp_seconds * g0
-        fuel_kg = round(spacecraft_mass_kg * (1.0 - math.exp(-(proposed_dv) / ve)), 2)
-
-        burn_epoch = datetime.now(timezone.utc) + timedelta(hours=6.0)
+        # Tsiolkovsky rocket equation is only valid with real spacecraft mass and Isp.
+        fuel_kg = None
+        if spacecraft_mass_kg is not None and isp_seconds is not None:
+            g0 = 9.80665
+            ve = isp_seconds * g0
+            fuel_kg = round(spacecraft_mass_kg * (1.0 - math.exp(-(proposed_dv) / ve)), 2)
 
         proposal = ManeuverProposalInDB(
             conjunction_id=conjunction_id,
@@ -188,7 +211,7 @@ class ToolRegistry:
             burn_epoch=burn_epoch,
             projected_miss_distance_km=round(current_miss_km + miss_delta, 2),
             fuel_consumption_kg=fuel_kg,
-            secondary_conjunction_risk="NONE_DETECTED",
+            secondary_conjunction_risk="NOT_ASSESSED",
             approval_status=ApprovalStatus.PENDING,
             review_notes="Automated plan generated by Mission Planning Agent. Awaiting flight-director HITL approval."
         )
