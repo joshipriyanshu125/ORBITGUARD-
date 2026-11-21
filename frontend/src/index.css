@@ -31,6 +31,31 @@ body {
   background: #0ea5e9;
 }
 
+/* High-contrast OrbitGuard palette: readable muted text and layered blue-slate surfaces. */
+body { background-color: #080f1b; color: #eef4fb; }
+[class~="bg-[#050811]"] { background-color: #0a1220 !important; }
+[class~="bg-[#080d18]/95"] { background-color: rgba(13, 22, 37, .98) !important; }
+[class~="bg-[#0b101b]"],
+[class~="bg-[#090f1d]"],
+[class~="bg-[#0d1424]"] { background-color: #111c2d !important; }
+[class~="bg-gradient-to-br"] {
+  background-image: linear-gradient(135deg, #0b1524 0%, #0d192a 52%, #09111e 100%) !important;
+}
+
+.text-slate-500 { color: #9aadc4 !important; }
+.text-slate-600 { color: #879bb4 !important; }
+.text-slate-400 { color: #b5c3d4 !important; }
+
+/* Tiny telemetry labels were hard to scan at dashboard scale. */
+[class~="text-[10px]"] { font-size: 0.6875rem !important; line-height: 1rem !important; }
+[class~="text-[11px]"] { font-size: 0.75rem !important; line-height: 1.125rem !important; }
+
+button, a, input, select { transition-duration: 180ms; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}
+
 /* Cesium container full screen & UI styling */
 .cesium-viewer {
   font-family: inherit;

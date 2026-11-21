@@ -7,7 +7,6 @@ import {
   Play,
   Pause,
   Crosshair,
-  Satellite as SatelliteIcon,
   X,
   Database
 } from 'lucide-react';
