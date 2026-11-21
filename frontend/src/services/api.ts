@@ -163,7 +163,15 @@ export const apiService = {
   async getAgentMemory(limit: number = 20): Promise<AgentMemoryEntry[]> {
     try {
       const res = await apiClient.get('/agents/memory', { params: { limit } });
-      return Array.isArray(res.data) ? res.data : [];
+      const docs = Array.isArray(res.data) ? res.data : [];
+      return docs.map((m: any) => ({
+        memory_id: m.session_id,
+        agent_role: `Session ${m.session_id}`,
+        session_id: m.session_id,
+        task_summary: m.query ?? '',
+        findings: { summary: m.findings_summary ?? '', steps: m.plan?.steps ?? [] },
+        created_at: m.created_at,
+      }));
     } catch {
       return [];
     }

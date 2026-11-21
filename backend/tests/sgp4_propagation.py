@@ -26,6 +26,18 @@ def test_sgp4_single_propagation():
     assert -180.0 <= pt.longitude_deg <= 180.0
 
 
+def test_sgp4_discards_non_finite_state(monkeypatch):
+    """NaN geodetic output must not reach JSON (it breaks the batch positions endpoint)."""
+    import app.services.sgp4_engine as engine_module
+
+    line1 = "1 25544U 98067A   24125.51231481  .00016717  00000+0  30000-3 0  9993"
+    line2 = "2 25544  51.6415 162.1524 0004521  45.1234 315.0123 15.49812345451231"
+    satrec = sgp4_engine.build_satrec(line1, line2)
+    monkeypatch.setattr(engine_module, "ecef_to_geodetic", lambda *_: (float("nan"), 0.0, 400.0))
+
+    assert sgp4_engine.propagate_single(satrec, datetime(2024, 5, 4, 12, 17, 43, tzinfo=timezone.utc)) is None
+
+
 def test_sgp4_orbit_path_generation():
     line1 = "1 25544U 98067A   24125.51231481  .00016717  00000+0  30000-3 0  9993"
     line2 = "2 25544  51.6415 162.1524 0004521  45.1234 315.0123 15.49812345451231"

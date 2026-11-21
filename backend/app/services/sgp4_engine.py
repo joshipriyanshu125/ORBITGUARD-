@@ -45,6 +45,9 @@ class SGP4Engine:
         # Coordinate transformation: TEME -> ECEF -> Geodetic
         x_ecef, y_ecef, z_ecef = teme_to_ecef(x, y, z, dt)
         lat_deg, lon_deg, alt_km = ecef_to_geodetic(x_ecef, y_ecef, z_ecef)
+        # Degenerate elements can yield NaN with error_code 0; NaN is not JSON-safe.
+        if not np.all(np.isfinite([lat_deg, lon_deg, alt_km])):
+            return None
 
         return OrbitPoint(
             timestamp=dt,
