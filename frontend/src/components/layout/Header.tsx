@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Radio, Bell, Clock } from 'lucide-react';
 import type { SystemHealthStatus } from '../../types';
+import ShinyText from '../reactbits/ShinyText';
 
 interface HeaderProps {
   health: SystemHealthStatus | null;
@@ -33,9 +34,15 @@ export const Header: React.FC<HeaderProps> = ({ health, activeAlertsCount, onAle
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-black text-lg tracking-wider text-slate-100">
-                ORBITGUARD AI
-              </span>
+              <ShinyText
+                text="ORBITGUARD AI"
+                color="#f1f5f9"
+                shineColor="#38bdf8"
+                speed={4}
+                shineWidth={24}
+                glow={0.15}
+                className="font-black text-lg tracking-wider"
+              />
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 uppercase tracking-widest font-mono">
                 v1.0
               </span>
