@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from pydantic import field_validator
+from typing import List, Union
+import json
 
 
 class Settings(BaseSettings):
@@ -12,7 +14,7 @@ class Settings(BaseSettings):
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: Union[List[str], str] = [
         "https://orbitguard-one.vercel.app",
     ]
     
@@ -24,7 +26,7 @@ class Settings(BaseSettings):
     CELESTRAK_BASE_URL: str = "https://celestrak.org/NORAD/elements/gp.php"
     AUTO_SYNC_ENABLED: bool = True
     AUTO_SYNC_INTERVAL_HOURS: float = 12.0
-    AUTO_SYNC_GROUPS: List[str] = ["stations", "fengyun-1c-debris"]
+    AUTO_SYNC_GROUPS: Union[List[str], str] = ["stations", "fengyun-1c-debris"]
     
     # AI / LLM Orchestration
     LLM_PROVIDER: str = "custom"
@@ -43,6 +45,25 @@ class Settings(BaseSettings):
         "operational flight-dynamics commands. Explicit human-in-the-loop authorization is required "
         "for all recommended maneuvers."
     )
+
+    @field_validator("CORS_ORIGINS", "AUTO_SYNC_GROUPS", mode="after")
+    @classmethod
+    def assemble_string_list(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed if str(x).strip()]
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, (list, tuple, set)):
+            return [str(origin).strip() for origin in v if str(origin).strip()]
+        return v
 
     model_config = SettingsConfigDict(
         env_file=("../.env", ".env"),
