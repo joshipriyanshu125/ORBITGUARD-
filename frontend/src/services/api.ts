@@ -11,9 +11,7 @@ import type {
   HypotheticalScenarioResponse
 } from '../types';
 
-const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'https://orbitguard-exb5.onrender.com/api').trim();
-const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
-const API_BASE_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://orbitguard-exb5.onrender.com').trim().replace(/\/+$/, '');
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
