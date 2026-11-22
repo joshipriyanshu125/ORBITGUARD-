@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ]
     
     # MongoDB Atlas settings
-    MONGODB_URI: str = "mongodb+srv://joshipriyanshu125_db_user:khushipiyush010517@cluster0.khka7ct.mongodb.net/orbitguard"
+    MONGODB_URI: str = ""
     MONGODB_DB_NAME: str = "orbitguard"
     
     # External data sources
