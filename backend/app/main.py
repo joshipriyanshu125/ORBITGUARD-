@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.services.ingestion_scheduler import ingestion_scheduler
-from app.api.router import api_router
+from app.api.router import api_router, root_router
 
 
 @asynccontextmanager
@@ -48,8 +48,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Attach API routes
+# Attach API routes (both /api/... and direct /... for client compatibility)
 app.include_router(api_router)
+app.include_router(root_router)
 
 
 @app.get("/favicon.ico", include_in_schema=False)

@@ -9,12 +9,19 @@ from app.api.v1.agents import router as agents_router
 from app.api.v1.simulation import router as simulation_router
 
 api_router = APIRouter(prefix="/api")
+root_router = APIRouter()
 
-api_router.include_router(health_router, tags=["System Health"])
-api_router.include_router(catalog_router, tags=["Satellite Catalog"])
-api_router.include_router(propagation_router, tags=["Orbital Propagation"])
-api_router.include_router(conjunctions_router, tags=["Conjunction Screening"])
-api_router.include_router(ml_router, tags=["Machine Learning Intelligence"])
-api_router.include_router(collision_assessment_router, tags=["Collision Assessment Module"])
-api_router.include_router(agents_router, tags=["Autonomous AI Multi-Agent Brain"])
-api_router.include_router(simulation_router, tags=["Simulation Laboratory & Engine"])
+routers = [
+    (health_router, "System Health"),
+    (catalog_router, "Satellite Catalog"),
+    (propagation_router, "Orbital Propagation"),
+    (conjunctions_router, "Conjunction Screening"),
+    (ml_router, "Machine Learning Intelligence"),
+    (collision_assessment_router, "Collision Assessment Module"),
+    (agents_router, "Autonomous AI Multi-Agent Brain"),
+    (simulation_router, "Simulation Laboratory & Engine"),
+]
+
+for r, tag in routers:
+    api_router.include_router(r, tags=[tag])
+    root_router.include_router(r, tags=[tag], include_in_schema=False)

@@ -137,8 +137,10 @@ class CelesTrakService:
         if os.environ.get("ENVIRONMENT") == "test" or "pytest" in sys.modules:
             return self.get_offline_sample_data(group_name)
 
-        url = f"{self.base_url}?GROUP={group_name}&FORMAT=tle"
-        logger.info(f"Fetching CelesTrak group '{group_name}' from {url}...")
+        candidate_urls = [
+            f"{self.base_url}?GROUP={group_name}&FORMAT=tle",
+            f"https://www.celestrak.com/NORAD/elements/gp.php?GROUP={group_name}&FORMAT=tle"
+        ]
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 ORBITGUARD/1.0",
@@ -146,19 +148,26 @@ class CelesTrakService:
         }
 
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(20.0, connect=8.0),
             headers=headers,
             follow_redirects=True
         ) as client:
-            try:
-                response = await client.get(url)
-                response.raise_for_status()
-                return self.parse_tle_text(response.text, group_name)
-            except Exception as exc:
-                exc_desc = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-                logger.warning(f"Failed to fetch live CelesTrak group '{group_name}' ({exc_desc}).")
-                # No fabrication: an unavailable upstream source yields no records.
-                return []
+            last_exc = None
+            for target_url in candidate_urls:
+                try:
+                    logger.info(f"Fetching CelesTrak group '{group_name}' from {target_url}...")
+                    response = await client.get(target_url)
+                    response.raise_for_status()
+                    records = self.parse_tle_text(response.text, group_name)
+                    if records:
+                        return records
+                except Exception as exc:
+                    last_exc = exc
+                    exc_desc = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                    logger.warning(f"Failed to fetch from {target_url} ({exc_desc}). Trying fallback if available.")
+
+            logger.warning(f"Failed to fetch live CelesTrak group '{group_name}' across all mirrors ({last_exc}).")
+            return []
 
     def get_offline_sample_data(self, group_name: str) -> List[SatelliteCreate]:
         """Provides verified sample ephemeris for key satellites and debris when offline."""
