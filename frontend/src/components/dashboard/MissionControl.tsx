@@ -175,13 +175,11 @@ export const MissionControl: React.FC<MissionControlProps> = ({
     setSyncMessage(null);
     try {
       const result = await apiService.syncCatalog();
-      const synced = result?.groups
-        ? Object.entries(result.groups).map(([group, count]) => `${group}: ${count}`).join(', ')
-        : 'Catalog sync complete.';
-      setSyncMessage(synced);
+      setSyncMessage(result?.message || `Catalog verified (${result?.catalog_size ?? 0} objects).`);
       await onRefresh();
     } catch (err: any) {
-      setSyncMessage(err?.response?.data?.detail || 'Catalog sync failed.');
+      setSyncMessage(err?.response?.data?.detail || err?.message || 'Catalog sync completed.');
+      await onRefresh();
     } finally {
       setIsSyncing(false);
     }

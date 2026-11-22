@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     
     # External data sources
     CELESTRAK_BASE_URL: str = "https://celestrak.org/NORAD/elements/gp.php"
-    AUTO_SYNC_ENABLED: bool = True
+    AUTO_SYNC_ENABLED: bool = False
     AUTO_SYNC_INTERVAL_HOURS: float = 12.0
     AUTO_SYNC_GROUPS: Union[List[str], str] = ["stations", "fengyun-1c-debris"]
     

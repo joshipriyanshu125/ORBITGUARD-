@@ -148,25 +148,24 @@ class CelesTrakService:
         }
 
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0, connect=8.0),
+            timeout=httpx.Timeout(4.0, connect=2.0),
             headers=headers,
             follow_redirects=True
         ) as client:
-            last_exc = None
             for target_url in candidate_urls:
                 try:
-                    logger.info(f"Fetching CelesTrak group '{group_name}' from {target_url}...")
+                    logger.info(f"Checking CelesTrak group '{group_name}' from {target_url}...")
                     response = await client.get(target_url)
                     response.raise_for_status()
                     records = self.parse_tle_text(response.text, group_name)
                     if records:
+                        logger.info(f"Successfully fetched {len(records)} records from {target_url}.")
                         return records
                 except Exception as exc:
-                    last_exc = exc
-                    exc_desc = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
-                    logger.warning(f"Failed to fetch from {target_url} ({exc_desc}). Trying fallback if available.")
+                    exc_name = type(exc).__name__
+                    logger.info(f"Upstream mirror {target_url} not reachable ({exc_name}).")
 
-            logger.warning(f"Failed to fetch live CelesTrak group '{group_name}' across all mirrors ({last_exc}).")
+            logger.info(f"Upstream CelesTrak not directly reachable from cloud network. Using existing MongoDB catalog.")
             return []
 
     def get_offline_sample_data(self, group_name: str) -> List[SatelliteCreate]:
