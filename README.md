@@ -1,6 +1,11 @@
 # ORBITGUARD AI 🛰️
 ### Autonomous Space Situational Awareness, AI Intelligence & Collision Avoidance System
 
+### 🌐 Live Production Deployments
+- **Live Mission Control (Frontend):** [https://orbitguard-one.vercel.app/](https://orbitguard-one.vercel.app/)
+- **Live API Service (Backend):** [https://orbitguard-exb5.onrender.com/](https://orbitguard-exb5.onrender.com/)
+- **Live Interactive API Documentation (Swagger):** [https://orbitguard-exb5.onrender.com/docs](https://orbitguard-exb5.onrender.com/docs)
+
 > **Statutory Aerospace Notice:** ORBITGUARD AI provides analytical, probabilistic, and illustrative orbital collision assessments based on publicly available TLE/OMM ephemeris feeds. This platform does not provide certified operational flight-dynamics commands. Explicit **human-in-the-loop (HITL)** authorization is strictly enforced before any collision avoidance maneuver (CAM) proposal can be accepted or executed.
 
 ---
@@ -163,7 +168,7 @@ uv pip install -e ".[dev]"
 # Linux / macOS:
 .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-Interactive Swagger documentation available at: `http://localhost:8000/docs`
+Interactive Swagger documentation available at: [https://orbitguard-exb5.onrender.com/docs](https://orbitguard-exb5.onrender.com/docs)
 
 ### Frontend Setup
 ```bash
@@ -179,7 +184,9 @@ npm run build
 # Start Vite development server
 npm run dev
 ```
-Dashboard available at: `http://localhost:5173`
+- **Live Production Frontend (Vercel):** [https://orbitguard-one.vercel.app/](https://orbitguard-one.vercel.app/)
+- **Live Production Backend API (Render):** [https://orbitguard-exb5.onrender.com/](https://orbitguard-exb5.onrender.com/)
+- **Live Swagger Documentation:** [https://orbitguard-exb5.onrender.com/docs](https://orbitguard-exb5.onrender.com/docs)
 
 ---
 
