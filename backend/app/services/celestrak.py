@@ -140,13 +140,23 @@ class CelesTrakService:
         url = f"{self.base_url}?GROUP={group_name}&FORMAT=tle"
         logger.info(f"Fetching CelesTrak group '{group_name}' from {url}...")
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 ORBITGUARD/1.0",
+            "Accept": "text/plain, */*"
+        }
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            headers=headers,
+            follow_redirects=True
+        ) as client:
             try:
                 response = await client.get(url)
                 response.raise_for_status()
                 return self.parse_tle_text(response.text, group_name)
             except Exception as exc:
-                logger.warning(f"Failed to fetch live CelesTrak group '{group_name}' ({exc}).")
+                exc_desc = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                logger.warning(f"Failed to fetch live CelesTrak group '{group_name}' ({exc_desc}).")
                 # No fabrication: an unavailable upstream source yields no records.
                 return []
 
