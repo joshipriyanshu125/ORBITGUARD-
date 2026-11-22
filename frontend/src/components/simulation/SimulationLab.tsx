@@ -15,6 +15,7 @@ import type {
   HypotheticalScenarioResponse
 } from '../../types';
 import { apiService } from '../../services/api';
+import { RiskInterpretationNotice } from '../risk/RiskInterpretationNotice';
 
 interface SimulationLabProps {
   satellites: SatelliteSummary[];
@@ -250,6 +251,8 @@ export const SimulationLab: React.FC<SimulationLabProps> = ({
 
       {result && selectedCandidate && (
         <>
+          <RiskInterpretationNotice compact />
+
           {/* Optimal candidate + secondary risk */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 p-5 rounded-2xl bg-[#090f1d] border border-cyan-500/40 shadow-xl space-y-3">
@@ -267,8 +270,8 @@ export const SimulationLab: React.FC<SimulationLabProps> = ({
                   ['Delta-V', `${selectedCandidate.delta_v_ms} m/s`],
                   ['Propellant', `${selectedCandidate.fuel_mass_kg} kg`],
                   ['Post-Burn Miss', `${selectedCandidate.projected_miss_distance_km} km`],
-                  ['Post-Burn Pc', selectedCandidate.post_maneuver_collision_prob_sci],
-                  ['CARA Tier', selectedCandidate.post_maneuver_cara_tier],
+                  ['Modeled Pc estimate*', selectedCandidate.post_maneuver_collision_prob_sci],
+                  ['Modeled threshold band*', selectedCandidate.post_maneuver_cara_tier],
                   ['Efficiency', `${selectedCandidate.fuel_efficiency_km_per_kg} km/kg`],
                   ['Residual Propellant', `${selectedCandidate.residual_fuel_budget_kg} kg`],
                   ['Lead Time to TCA', `${selectedCandidate.lead_time_to_tca_hours} h`]
@@ -365,7 +368,7 @@ export const SimulationLab: React.FC<SimulationLabProps> = ({
                     <th className="py-2.5 px-3">Propellant (kg)</th>
                     <th className="py-2.5 px-3">Post Miss (km)</th>
                     <th className="py-2.5 px-3">Efficiency (km/kg)</th>
-                    <th className="py-2.5 px-3">CARA Tier</th>
+                    <th className="py-2.5 px-3">Modeled band*</th>
                     <th className="py-2.5 px-3 text-right">Select</th>
                   </tr>
                 </thead>
@@ -388,7 +391,7 @@ export const SimulationLab: React.FC<SimulationLabProps> = ({
                         <td className="py-3 px-3 font-bold text-emerald-400">{cand.delta_v_ms}</td>
                         <td className="py-3 px-3">{cand.fuel_mass_kg} kg</td>
                         <td className="py-3 px-3 font-bold text-cyan-300">{cand.projected_miss_distance_km} km</td>
-                        <td className="py-3 px-3 text-purple-400 font-bold">{cand.fuel_efficiency_km_per_kg}</td>
+                        <td className="py-3 px-3 text-emerald-400 font-bold">{cand.fuel_efficiency_km_per_kg}</td>
                         <td className="py-3 px-3">
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-slate-300 border border-slate-700">
                             {cand.post_maneuver_cara_tier}

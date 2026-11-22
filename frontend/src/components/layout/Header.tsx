@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ health, activeAlertsCount, onAle
   const isOnline = health?.status === 'healthy';
 
   return (
-    <header className="h-16 border-b border-slate-800/80 bg-[#080d18]/95 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-50">
+    <header className="app-header h-16 border-b border-slate-800/80 bg-[#080d18]/95 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-50">
       {/* Brand & Status */}
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-3">

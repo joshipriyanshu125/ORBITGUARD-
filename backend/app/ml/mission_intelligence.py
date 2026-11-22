@@ -154,7 +154,8 @@ class AIMissionIntelligenceEngine:
         exec_summary = (
             f"ORBITGUARD AI has screened a {risk_lvl} severity conjunction between operational asset "
             f"{p_name} and {s_name}. The predicted minimum miss distance is {miss_km:.2f} km "
-            f"at relative velocity {rel_vel:.2f} km/s. NASA CARA posture: {cara_tier}."
+            f"at relative velocity {rel_vel:.2f} km/s. This is a proximity screening result; its threshold band "
+            f"({cara_tier}) is an indicative model comparison, not an operational NASA CARA posture."
         )
 
         tech_findings = (
@@ -162,8 +163,9 @@ class AIMissionIntelligenceEngine:
             f"yielding significant kinetic collision risk. Time of closest approach is projected for {tca}.\n"
             f"2. Anomaly Evaluation: ML anomaly detector reports an anomaly score of {ano_score:.2f} ({ano_diag}), "
             f"confirming that primary asset orbit ephemeris reflects standard upper atmospheric drag conditions.\n"
-            f"3. Probabilistic Uncertainty: Foster 2D encounter plane collision probability is P_c = {pc_sci}. "
-            f"Current covariance bounds place this encounter in the {cara_tier} operational decision window."
+            f"3. Modeled Probability Estimate: Foster 2D model-based Pc estimate = {pc_sci} under the available "
+            f"uncertainty assumptions. Without validated encounter covariance, this is illustrative screening only, "
+            f"not a scientifically validated operational Pc. The {cara_tier} threshold comparison is indicative only."
         )
 
         if risk_lvl == "CRITICAL" or miss_km < 2.0:

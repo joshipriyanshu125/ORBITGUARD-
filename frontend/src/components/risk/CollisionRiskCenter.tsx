@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { ConjunctionSummary, SatelliteSummary } from '../../types';
 import { apiService } from '../../services/api';
+import { RiskInterpretationNotice } from './RiskInterpretationNotice';
 
 interface CollisionRiskCenterProps {
   conjunctions: ConjunctionSummary[];
@@ -45,7 +46,7 @@ const formatReport = (eventId: string, conj: ConjunctionSummary, report: any) =>
     '',
     `Uncertainty Breakdown: ${report.uncertainty_explanation}`,
     '',
-    `Probabilistic CARA Risk: ${report.probabilistic_explanation}`,
+    `Modeled Pc estimate (not operational Pc): ${report.probabilistic_explanation}`,
     '',
     `Human-in-the-Loop Directive: ${report.hitl_recommendation}`
   ];
@@ -136,11 +137,11 @@ export const CollisionRiskCenter: React.FC<CollisionRiskCenterProps> = ({
         </div>
 
         <div className="p-4 rounded-2xl bg-[#090f1d] border border-amber-500/30 shadow-lg">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">High / Critical Risk</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest block">High Proximity Flags</span>
           <div className={`text-2xl font-black mt-1 ${highRiskCount > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
             {highRiskCount}
           </div>
-          <span className="text-[11px] text-slate-400 mt-2 block">Risk tier HIGH or CRITICAL</span>
+          <span className="text-[11px] text-slate-400 mt-2 block">Estimated proximity tier: HIGH or CRITICAL</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-lg">
@@ -163,6 +164,8 @@ export const CollisionRiskCenter: React.FC<CollisionRiskCenterProps> = ({
           </span>
         </div>
       </div>
+
+      <RiskInterpretationNotice />
 
       {/* Screening control */}
       <div className="p-4 rounded-2xl bg-[#090f1d] border border-slate-800 shadow-xl flex flex-wrap items-center gap-3">
@@ -222,7 +225,7 @@ export const CollisionRiskCenter: React.FC<CollisionRiskCenterProps> = ({
                     <th className="py-2.5 px-3">TCA</th>
                     <th className="py-2.5 px-3">Miss (km)</th>
                     <th className="py-2.5 px-3">Rel V (km/s)</th>
-                    <th className="py-2.5 px-3">Risk</th>
+                    <th className="py-2.5 px-3">Proximity tier</th>
                     <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -302,8 +305,8 @@ export const CollisionRiskCenter: React.FC<CollisionRiskCenterProps> = ({
                   ['TCA', formatUtc(selectedConjunction.tca)],
                   ['Miss Distance', `${selectedConjunction.miss_distance_km.toFixed(3)} km`],
                   ['Relative Velocity', `${selectedConjunction.relative_speed_kms.toFixed(2)} km/s`],
-                  ['Risk Tier', selectedConjunction.risk_tier ?? 'UNKNOWN'],
-                  ['Risk Score', selectedConjunction.risk_score != null ? selectedConjunction.risk_score.toFixed(1) : '—'],
+                  ['Estimated proximity tier', selectedConjunction.risk_tier ?? 'UNKNOWN'],
+                  ['Proximity screening score', selectedConjunction.risk_score != null ? `${selectedConjunction.risk_score.toFixed(1)} / 100` : '—'],
                   ['Status', selectedConjunction.status ?? '—']
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between gap-3 border-b border-slate-800/50 py-1">

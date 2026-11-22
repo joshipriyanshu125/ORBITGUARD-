@@ -6,7 +6,6 @@ import { OrbitalExplorer } from './components/orbital/OrbitalExplorer';
 import { IntelligenceCenter } from './components/ai/IntelligenceCenter';
 import { CollisionRiskCenter } from './components/risk/CollisionRiskCenter';
 import { SimulationLab } from './components/simulation/SimulationLab';
-import Aurora from './components/reactbits/Aurora';
 import { apiService } from './services/api';
 import type { SatelliteSummary, ConjunctionSummary, AgentProposal, SystemHealthStatus } from './types';
 
@@ -55,23 +54,8 @@ export const App: React.FC = () => {
   ).length;
 
   return (
-    <div className="relative isolate min-h-screen overflow-hidden bg-[#050811] text-slate-100 antialiased">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[360px] opacity-40" aria-hidden="true">
-        <Aurora
-          colorStops={['#0ea5e9', '#6366f1', '#22d3ee']}
-          amplitude={0.8}
-          blend={0.7}
-          speed={0.3}
-          height={0.35}
-          scale={1.15}
-          glow={0.35}
-          layers={2}
-          dpr={1}
-          className="h-full w-full"
-          style={{ maskImage: 'linear-gradient(to bottom, black 0%, transparent 100%)' }}
-        />
-      </div>
-
+    <div className="app-shell relative isolate min-h-screen overflow-hidden text-slate-100 antialiased">
+      <div className="space-atmosphere" aria-hidden="true" />
       <div className="relative z-10 flex min-h-screen flex-col">
         <Header
           health={health}
@@ -79,7 +63,7 @@ export const App: React.FC = () => {
           onAlertsClick={() => setCurrentTab('risk')}
         />
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="app-layout flex flex-1 overflow-hidden">
           <Sidebar
             currentTab={currentTab}
             onTabChange={setCurrentTab}
@@ -88,7 +72,7 @@ export const App: React.FC = () => {
             health={health}
           />
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="app-main flex-1 overflow-y-auto p-6">
           {currentTab === 'dashboard' && (
             <MissionControl
               satellites={satellites}

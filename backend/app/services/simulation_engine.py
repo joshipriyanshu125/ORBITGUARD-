@@ -485,8 +485,9 @@ class SimulationEngine:
             f"2. CANDIDATE EVALUATION: Simulated {len(candidates)} avoidance trajectories. {optimal.name} ranked first "
             f"with delta-V of {optimal.delta_v_ms} m/s, consuming {optimal.fuel_mass_kg} kg of propellant.\n"
             f"3. TRAJECTORY DELTA: Post-burn separation expands miss distance to {optimal.projected_miss_distance_km:.2f} km "
-            f"(gain of +{traj_comp.miss_distance_gain_km:.2f} km), with an analytical collision probability estimate of "
-            f"{optimal.post_maneuver_collision_prob_sci} ({optimal.post_maneuver_cara_tier}).\n"
+            f"(gain of +{traj_comp.miss_distance_gain_km:.2f} km), with an illustrative Pc estimate under modeled "
+            f"SGP4 uncertainty of {optimal.post_maneuver_collision_prob_sci} ({optimal.post_maneuver_cara_tier}). "
+            f"This is not a validated operational probability of collision.\n"
             f"4. SECONDARY CLEARANCE: Not assessed; no post-burn catalog screening was performed.\n"
             f"5. GOVERNANCE: Analytical output only. No maneuver was proposed, approved, or uplinked."
         )

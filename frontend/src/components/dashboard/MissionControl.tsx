@@ -224,12 +224,25 @@ export const MissionControl: React.FC<MissionControlProps> = ({
 
   return (
     <div className="space-y-5 pb-12 text-slate-200">
+      <section className="dashboard-intro">
+        <div>
+          <div className="eyebrow"><span className="status-beacon" /> ORBITAL OPERATIONS / LIVE OVERVIEW</div>
+          <h1>Mission Control</h1>
+          <p>Keep an eye on the fleet, orbital health, and the next close approach.</p>
+        </div>
+        <div className="intro-readout">
+          <span className="readout-label">TRACKING WINDOW</span>
+          <span className="readout-value">24 <small>HOURS</small></span>
+          <span className="readout-note">Live catalog telemetry</span>
+        </div>
+      </section>
+
       {/* Catalog summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Catalog Objects', value: health?.catalog?.satellites ?? satellites.length, sub: `${health?.database?.engine ?? 'database unknown'} • ${satellites.length} loaded`, icon: Database, color: 'text-sky-400' },
           { label: 'Payloads (loaded)', value: payloadCount, sub: `${debrisCount} debris / rocket bodies in loaded set`, icon: Satellite, color: 'text-emerald-400' },
-          { label: 'Tracked Conjunctions', value: conjunctions.length, sub: `${highRiskCount} high or critical`, icon: AlertOctagon, color: highRiskCount > 0 ? 'text-rose-400' : 'text-slate-400' },
+          { label: 'Tracked Conjunctions', value: conjunctions.length, sub: `${highRiskCount} high / critical proximity flags`, icon: AlertOctagon, color: highRiskCount > 0 ? 'text-rose-400' : 'text-slate-400' },
           { label: 'Ingestion Scheduler', value: health?.ingestion_scheduler?.running ? 'RUNNING' : 'STOPPED', sub: health?.ingestion_scheduler ? `${health.ingestion_scheduler.interval_hours}h interval` : 'status unknown', icon: Radio, color: health?.ingestion_scheduler?.running ? 'text-emerald-400' : 'text-slate-400' }
         ].map((stat) => {
           const Icon = stat.icon;
@@ -406,7 +419,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
             <AlertOctagon className="w-4 h-4 text-rose-400" />
-            Stored Conjunctions ({selectedConjunctions.length})
+            Estimated Proximity Events ({selectedConjunctions.length})
           </h2>
           <button onClick={onNavigateToRisk} className="text-[11px] text-sky-400 hover:text-sky-300 font-semibold">
             Open Risk Center →
@@ -425,7 +438,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({
                   <th className="px-4 py-2">TCA</th>
                   <th className="px-4 py-2">Miss</th>
                   <th className="px-4 py-2">Rel. Speed</th>
-                  <th className="px-4 py-2 text-right">Risk</th>
+                  <th className="px-4 py-2 text-right">Proximity tier</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/40">

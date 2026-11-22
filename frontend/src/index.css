@@ -1,66 +1,165 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --space-void: #07111b;
+  --space-panel: rgba(15, 29, 43, 0.88);
+  --space-line: rgba(150, 181, 204, 0.14);
+  --space-muted: #9aafc0;
+  --space-cyan: #69d9e8;
+}
+
+* { box-sizing: border-box; }
+
 body {
   margin: 0;
-  background-color: #050811;
-  color: #f1f5f9;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: var(--space-void);
+  color: #eaf2f7;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-::selection {
-  background-color: rgba(6, 182, 212, 0.3);
-  color: #a5f3fc;
+::selection { background: rgba(89, 208, 224, 0.3); color: #f4fdff; }
+
+.app-shell { background: linear-gradient(145deg, #07111b 0%, #0a1722 46%, #08131d 100%); }
+
+.space-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 76% 9%, rgba(28, 104, 125, 0.17), transparent 33%),
+    radial-gradient(ellipse at 15% 58%, rgba(27, 77, 105, 0.12), transparent 37%),
+    radial-gradient(circle at 18% 14%, rgba(213, 237, 247, 0.62) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 63% 31%, rgba(148, 204, 220, 0.5) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 88% 61%, rgba(213, 237, 247, 0.45) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 44% 77%, rgba(137, 188, 205, 0.4) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 6% 86%, rgba(213, 237, 247, 0.38) 0 1px, transparent 1.4px);
 }
 
-/* Custom scrollbars for aerospace panels */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #090e1a;
-}
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #0ea5e9;
+.space-atmosphere::before {
+  content: "";
+  position: absolute;
+  width: min(78vw, 1050px);
+  aspect-ratio: 1;
+  top: -28rem;
+  right: -20rem;
+  border: 1px solid rgba(102, 199, 218, 0.08);
+  border-radius: 50%;
+  box-shadow: 0 0 0 58px rgba(102, 199, 218, 0.018), 0 0 0 130px rgba(102, 199, 218, 0.014);
+  transform: rotate(-22deg) scaleY(0.42);
 }
 
-/* High-contrast OrbitGuard palette: readable muted text and layered blue-slate surfaces. */
-body { background-color: #080f1b; color: #eef4fb; }
-[class~="bg-[#050811]"] { background-color: #0a1220 !important; }
-[class~="bg-[#080d18]/95"] { background-color: rgba(13, 22, 37, .98) !important; }
-[class~="bg-[#0b101b]"],
-[class~="bg-[#090f1d]"],
-[class~="bg-[#0d1424]"] { background-color: #111c2d !important; }
-[class~="bg-gradient-to-br"] {
-  background-image: linear-gradient(135deg, #0b1524 0%, #0d192a 52%, #09111e 100%) !important;
+.app-header {
+  background: rgba(8, 19, 29, 0.88) !important;
+  border-color: var(--space-line) !important;
+  backdrop-filter: blur(18px);
 }
 
-.text-slate-500 { color: #9aadc4 !important; }
-.text-slate-600 { color: #879bb4 !important; }
-.text-slate-400 { color: #b5c3d4 !important; }
+.app-sidebar {
+  background: rgba(9, 21, 31, 0.78) !important;
+  border-color: var(--space-line) !important;
+  backdrop-filter: blur(14px);
+}
 
-/* Tiny telemetry labels were hard to scan at dashboard scale. */
+/* Harmonize the existing utility-based panels with the new ink and slate palette. */
+[class~="bg-[#050811]"] { background-color: transparent !important; }
+[class~="bg-[#080d18]/95"] { background-color: rgba(8, 19, 29, 0.88) !important; }
+[class~="bg-[#0b101b]"], [class~="bg-[#090f1d]"], [class~="bg-[#0d1424]"], [class~="bg-[#0d1628]"] {
+  background-color: var(--space-panel) !important;
+}
+[class~="bg-[#090f1f]"], [class~="bg-[#091022]"], [class~="bg-[#091329]"] { background-color: rgba(12, 25, 38, 0.95) !important; }
+[class~="bg-[#070b13]"], [class~="bg-[#060a14]"], [class~="bg-[#060c1c]"] { background-color: rgba(5, 13, 21, 0.86) !important; }
+[class~="bg-[#172554]"] { background-color: rgba(21, 57, 73, 0.95) !important; }
+
+.text-slate-500 { color: #9aafc0 !important; }
+.text-slate-600 { color: #879eaf !important; }
+.text-slate-400 { color: #b2c2ce !important; }
 [class~="text-[10px]"] { font-size: 0.6875rem !important; line-height: 1rem !important; }
 [class~="text-[11px]"] { font-size: 0.75rem !important; line-height: 1.125rem !important; }
 
-button, a, input, select { transition-duration: 180ms; }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 2px solid #38bdf8;
-  outline-offset: 2px;
+.dashboard-intro {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  min-height: 142px;
+  padding: 1.45rem 1.6rem;
+  overflow: hidden;
+  border: 1px solid rgba(125, 193, 207, 0.2);
+  border-radius: 1.2rem;
+  background: linear-gradient(110deg, rgba(15, 37, 51, 0.94), rgba(10, 25, 37, 0.77) 62%, rgba(18, 46, 57, 0.48));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16), inset 0 1px rgba(255, 255, 255, 0.035);
 }
 
-/* Cesium container full screen & UI styling */
-.cesium-viewer {
-  font-family: inherit;
+.dashboard-intro::after {
+  content: "";
+  position: absolute;
+  width: 350px;
+  height: 155px;
+  right: 16%;
+  top: -66px;
+  border: 1px solid rgba(103, 210, 224, 0.17);
+  border-radius: 50%;
+  transform: rotate(-19deg);
+  box-shadow: 0 0 0 22px rgba(103, 210, 224, 0.025), 0 0 0 49px rgba(103, 210, 224, 0.02);
+  pointer-events: none;
 }
-.cesium-widget, .cesium-widget canvas {
-  width: 100% !important;
-  height: 100% !important;
+
+.dashboard-intro h1 { margin: 0.48rem 0 0.22rem; color: #f0f7fa; font-size: clamp(1.55rem, 3vw, 2rem); letter-spacing: -0.045em; font-weight: 680; }
+.dashboard-intro p { margin: 0; color: #a9bdc9; font-size: 0.9rem; }
+.eyebrow, .readout-label, .readout-note { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.13em; }
+.eyebrow { display: flex; align-items: center; gap: 0.55rem; color: #8fb6c2; font-size: 0.68rem; }
+.status-beacon { width: 7px; height: 7px; border-radius: 50%; background: #65dbbc; box-shadow: 0 0 12px rgba(101, 219, 188, 0.7); }
+.intro-readout { position: relative; z-index: 1; min-width: 155px; padding-left: 1.2rem; border-left: 1px solid rgba(150, 199, 207, 0.2); }
+.readout-label { display: block; color: #7f9ca9; font-size: 0.6rem; }
+.readout-value { display: block; margin-top: 0.38rem; color: #e4f7f8; font: 500 1.7rem/1.1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.readout-value small { color: #8eaeb8; font-size: 0.64rem; letter-spacing: 0.1em; }
+.readout-note { display: block; margin-top: 0.35rem; color: #8ba3af; font-size: 0.57rem; letter-spacing: 0.08em; text-transform: none; }
+
+button, a, input, select { transition-duration: 180ms; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #69d9e8; outline-offset: 2px; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: #09141e; }
+::-webkit-scrollbar-thumb { background: #2a414f; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #4b9aad; }
+
+.cesium-viewer { font-family: inherit; }
+.cesium-widget, .cesium-widget canvas { width: 100% !important; height: 100% !important; }
+
+@media (max-width: 900px) {
+  .app-layout { flex-direction: column; overflow: visible; }
+  .app-sidebar { width: 100% !important; padding: 0.65rem 0.9rem !important; border-right: 0 !important; border-bottom: 1px solid var(--space-line); }
+  .app-sidebar > div:first-child { display: flex; align-items: center; gap: 0.7rem; }
+  .app-sidebar > div:first-child > div:first-child { display: none; }
+  .app-sidebar nav { display: flex; gap: 0.45rem; width: 100%; overflow-x: auto; padding-bottom: 0.1rem; }
+  .app-sidebar nav button { width: auto; min-width: max-content; padding: 0.45rem 0.65rem; }
+  .app-sidebar nav button > div { gap: 0.5rem; }
+  .app-sidebar nav button > div > div:last-child > div:last-child { display: none; }
+  .app-sidebar nav button > span { margin-left: 0.3rem; }
+  .app-sidebar > div:last-child { display: none; }
+  .app-main { overflow: visible !important; padding: 1rem !important; }
+}
+
+@media (max-width: 640px) {
+  .app-header { height: auto !important; min-height: 4rem; padding: 0.65rem 0.85rem !important; }
+  .app-header > div:first-child { gap: 0.55rem; }
+  .app-header > div:first-child > div:first-child > div:last-child > p { display: none; }
+  .app-header > div:first-child > div:first-child { gap: 0.55rem; }
+  .app-header > div:first-child > div:first-child > div:first-child { width: 2rem; height: 2rem; }
+  .app-header > div:first-child > div:first-child > div:first-child svg { width: 1rem; height: 1rem; }
+  .app-header > div:last-child { gap: 0.45rem; }
+  .app-header > div:last-child > div:last-child { display: none; }
+  .dashboard-intro { min-height: 130px; padding: 1.1rem; }
+  .dashboard-intro p { max-width: 25rem; font-size: 0.8rem; }
+  .intro-readout { display: none; }
 }

@@ -304,8 +304,9 @@ class CollisionAssessmentEngine:
             f"and secondary {secondary_name} (NORAD {secondary_norad_id}, {secondary_type}) "
             f"at TCA {tca_iso} (Lead time: {lead_time_hours:.1f}h). "
             f"Predicted 3D miss distance is {geometry.miss_distance_km:.2f} km with relative velocity of "
-            f"{geometry.relative_velocity_kms:.2f} km/s. Evaluated collision probability is {pc_str}, "
-            f"placing this encounter in NASA CARA {tier_short} status with a composite priority score of {composite_score}/100."
+            f"{geometry.relative_velocity_kms:.2f} km/s. The model-based Pc estimate is {pc_str}; "
+            f"its comparison with NASA CARA thresholds is indicative only, not an operational CARA determination. "
+            f"Composite screening priority score: {composite_score}/100."
         )
 
         # Geometry explanation
@@ -332,12 +333,14 @@ class CollisionAssessmentEngine:
 
         # Probabilistic explanation
         prob_exp = (
-            f"Analytical Foster (1992) probability Pc = {probabilistic.collision_probability_sci}. "
+            f"Illustrative Foster 2D model-based Pc estimate = {probabilistic.collision_probability_sci}, "
             f"Empirical Monte Carlo simulation ({probabilistic.monte_carlo_trials:,} trials) yielded "
             f"{probabilistic.monte_carlo_hits} collision events (Pc_MC = {probabilistic.monte_carlo_probability:.3e}, "
             f"95% CI: [{probabilistic.confidence_interval_95[0]:.3e}, {probabilistic.confidence_interval_95[1]:.3e}]). "
-            f"Maximum theoretical probability if miss distance were zero under current covariance is "
-            f"{probabilistic.max_possible_pc:.3e}. Operational severity rated: {probabilistic.operational_severity}."
+            f"Maximum theoretical estimate if miss distance were zero under current modeled covariance is "
+            f"{probabilistic.max_possible_pc:.3e}. These estimates are conditional on the uncertainty source "
+            f"({uncertainty.covariance_source}); empirical SGP4 uncertainty is illustrative screening input, "
+            f"not a validated operational Pc. CARA thresholds are shown for reference only."
         )
 
         # Sensitivity analysis
@@ -371,7 +374,7 @@ class CollisionAssessmentEngine:
             )
         else:
             rec = (
-                "NOMINAL / ROUTINE: Collision probability is below operational screening thresholds. "
+                "NOMINAL / ROUTINE: The modeled estimate is below the configured screening thresholds. "
                 "Continue passive tracking with standard sensor updates."
             )
 

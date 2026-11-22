@@ -45,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'ai' as NavTab,
       label: 'AI Intelligence Center',
       badgeNum: pendingApprovalsCount > 0 ? pendingApprovalsCount : null,
-      badgeColor: 'bg-indigo-600',
+      badgeColor: 'bg-cyan-700',
       icon: Cpu,
       description: 'Autonomous Agents & Chat'
     },
@@ -55,7 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeNum: activeAlertsCount > 0 ? activeAlertsCount : null,
       badgeColor: 'bg-rose-600',
       icon: AlertOctagon,
-      description: 'CARA Risk Ranking & B-Plane'
+      description: 'Close Approach Screening'
     },
     {
       id: 'simulation' as NavTab,
@@ -67,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 border-r border-slate-800/80 bg-[#080d18]/95 flex flex-col justify-between p-4 shrink-0 select-none">
+    <aside className="app-sidebar w-64 border-r border-slate-800/80 bg-[#080d18]/95 flex flex-col justify-between p-4 shrink-0 select-none">
       <div className="space-y-6">
         {/* Navigation Category Label */}
         <div className="px-2">

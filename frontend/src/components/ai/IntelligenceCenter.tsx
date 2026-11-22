@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { AgentProposal, AgentMemoryEntry, ConjunctionSummary, SatelliteSummary } from '../../types';
 import { apiService } from '../../services/api';
+import { RiskInterpretationNotice } from '../risk/RiskInterpretationNotice';
 
 interface IntelligenceCenterProps {
   proposals: AgentProposal[];
@@ -216,7 +217,7 @@ export const IntelligenceCenter: React.FC<IntelligenceCenterProps> = ({
           </div>
           <div className="mt-3 flex justify-between text-xs text-slate-400">
             <span>Human Gate:</span>
-            <span className="text-purple-300 font-bold">Mandatory</span>
+            <span className="text-amber-300 font-bold">Mandatory</span>
           </div>
         </div>
 
@@ -249,6 +250,8 @@ export const IntelligenceCenter: React.FC<IntelligenceCenterProps> = ({
           </div>
         </div>
       </div>
+
+      <RiskInterpretationNotice compact />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Conversation */}
@@ -387,7 +390,7 @@ export const IntelligenceCenter: React.FC<IntelligenceCenterProps> = ({
                   onClick={() => setSelectedTab('approvals')}
                   className={`py-1.5 rounded-lg transition-all font-bold ${
                     selectedTab === 'approvals'
-                      ? 'bg-purple-900/60 text-purple-300 border border-purple-500/40'
+                      ? 'bg-cyan-900/60 text-cyan-300 border border-cyan-500/40'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -439,10 +442,10 @@ export const IntelligenceCenter: React.FC<IntelligenceCenterProps> = ({
                   proposals.map((p) => (
                     <div
                       key={p.proposal_id}
-                      className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-800/60 space-y-2.5 shadow-md"
+                      className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-800/60 space-y-2.5 shadow-md"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-purple-300 font-mono">{p.proposal_id}</span>
+                        <span className="font-bold text-cyan-300 font-mono">{p.proposal_id}</span>
                         <span className="px-2 py-0.5 rounded text-[10px] bg-amber-950/80 text-amber-300 border border-amber-800">
                           {p.approval_status}
                         </span>
@@ -483,7 +486,7 @@ export const IntelligenceCenter: React.FC<IntelligenceCenterProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 pt-2 border-t border-purple-900/50">
+                      <div className="flex items-center gap-2 pt-2 border-t border-cyan-900/50">
                         <button
                           onClick={() => handleDecision(p.proposal_id, 'APPROVED')}
                           disabled={!operatorName.trim()}
@@ -524,7 +527,7 @@ export const IntelligenceCenter: React.FC<IntelligenceCenterProps> = ({
                         ['TCA', formatUtc(selectedConjunction.tca)],
                         ['Miss Distance', `${selectedConjunction.miss_distance_km.toFixed(3)} km`],
                         ['Relative Velocity', `${selectedConjunction.relative_speed_kms.toFixed(2)} km/s`],
-                        ['Risk Tier', selectedConjunction.risk_tier ?? 'UNKNOWN'],
+                        ['Estimated proximity tier', selectedConjunction.risk_tier ?? 'UNKNOWN'],
                         ['Status', selectedConjunction.status ?? '—']
                       ].map(([label, value]) => (
                         <div key={label} className="flex justify-between gap-3 border-b border-slate-800/50 py-1">

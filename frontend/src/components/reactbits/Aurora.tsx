@@ -261,7 +261,7 @@ const link = (gl: WebGL2RenderingContext): Program | null => {
 };
 
 const Aurora = ({
-  colorStops = ['#5227FF', '#7cff67', '#5227FF'],
+  colorStops = ['#38bdf8', '#67e8f9', '#38bdf8'],
   amplitude = 1,
   blend = 0.5,
   speed = 1,
@@ -286,7 +286,7 @@ const Aurora = ({
   const wakeRef = useRef<(() => void) | null>(null);
   const stops = (Array.isArray(colorStops) ? colorStops : []).filter(Boolean).map(String).slice(0, MAX_STOPS);
   const settings: Settings = {
-    stops: stops.length >= 2 ? stops : stops.length === 1 ? [stops[0], stops[0]] : ['#5227FF', '#7cff67'],
+    stops: stops.length >= 2 ? stops : stops.length === 1 ? [stops[0], stops[0]] : ['#38bdf8', '#67e8f9'],
     amplitude: Math.max(0, amplitude),
     blend: clamp(blend, 0, 1),
     speed,
