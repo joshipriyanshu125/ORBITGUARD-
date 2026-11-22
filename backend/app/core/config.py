@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ]
     
     # MongoDB Atlas settings
-    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_URI: str = "mongodb+srv://joshipriyanshu125_db_user:khushipiyush010517@cluster0.khka7ct.mongodb.net/orbitguard"
     MONGODB_DB_NAME: str = "orbitguard"
     
     # External data sources
@@ -57,12 +57,12 @@ class Settings(BaseSettings):
                 try:
                     parsed = json.loads(v)
                     if isinstance(parsed, list):
-                        return [str(x).strip() for x in parsed if str(x).strip()]
+                        return [str(x).strip().rstrip("/") for x in parsed if str(x).strip()]
                 except Exception:
                     pass
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            return [origin.strip().rstrip("/") for origin in v.split(",") if origin.strip()]
         elif isinstance(v, (list, tuple, set)):
-            return [str(origin).strip() for origin in v if str(origin).strip()]
+            return [str(origin).strip().rstrip("/") for origin in v if str(origin).strip()]
         return v
 
     model_config = SettingsConfigDict(

@@ -11,7 +11,7 @@ import type {
   HypotheticalScenarioResponse
 } from '../types';
 
-const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'https://orbitguard-exb5.onrender.com/api').trim();
 const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
 const API_BASE_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
 
